@@ -1,0 +1,6 @@
+target
+.env
+*.resolved
+db.txt
+structure.txt
+debug.log
