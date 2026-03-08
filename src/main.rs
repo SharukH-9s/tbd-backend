@@ -38,7 +38,7 @@ async fn main() {
 
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
-        .allow_origin(Any) // In production you'd limit this to your friend's specific frontend URL
+        .allow_origin("https://turf-bd-frontend.vercel.app".parse::<HeaderValue>().unwrap()) // In production you'd limit this to your friend's specific frontend URL // changing the cors address to my frontend
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
