@@ -7,11 +7,12 @@ mod services;
 use crate::config::state::{AppState, SharedState};
 use axum::{Router, routing::post};
 use dotenvy::dotenv;
-use http::Method;
+use http::{HeaderValue, Method};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::services::ServeDir;
 
 #[tokio::main]
 async fn main() {
@@ -38,7 +39,11 @@ async fn main() {
 
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
-        .allow_origin("https://turf-bd-frontend.vercel.app".parse::<HeaderValue>().unwrap()) // In production you'd limit this to your friend's specific frontend URL // changing the cors address to my frontend
+        .allow_origin(
+            "https://turf-bd-frontend.vercel.app"
+                .parse::<HeaderValue>()
+                .unwrap(),
+        ) // In production you'd limit this to your friend's specific frontend URL // changing the cors address to my frontend
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers(Any);
 
@@ -51,6 +56,9 @@ async fn main() {
             post(api::handlers::refresh_token::refresh_handler),
         )
         .route("/logout", post(api::handlers::logout::logout_handler))
+        // This serves everything in the 'frontend' folder to the internet
+        // If a user goes to your URL, it will look for 'index.html' inside that folder
+        .fallback_service(ServeDir::new("frontend"))
         .layer(cors) // Ensure CORS is applied by adding this layer
         .with_state(shared_state); // State is applied to everything above
 

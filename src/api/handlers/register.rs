@@ -14,7 +14,7 @@ pub struct RegisterRequest {
     pub phone: String,
 }
 
-pub async fn register( State(database): State<SharedState>,Json(payload): Json<RegisterRequest>,) -> Result<impl IntoResponse, AppError> {
+pub async fn register( State(database): State<SharedState>, Json(payload): Json<RegisterRequest>,) -> Result<impl IntoResponse, AppError> {
   
     // passing the payload and database to the service layer. then store the user_response in response_data
     let response_data = UserService::register_user(&database, &payload).await?; // if register_request returns any AppError, the `?` operator will automatically return it
