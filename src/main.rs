@@ -45,7 +45,8 @@ async fn main() {
                 .unwrap(),
         ) // In production you'd limit this to your friend's specific frontend URL // changing the cors address to my frontend
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(Any);
+        .allow_headers(Any)
+        .allow_credentials(true); // This tells the browser: "Yes, I am expecting requests from Vercel to include cookies/credentials."
 
     // 1. Create the axum router
     let final_router = Router::new()

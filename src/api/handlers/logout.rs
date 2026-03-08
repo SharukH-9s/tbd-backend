@@ -19,7 +19,8 @@ pub async fn logout_handler(
     let dead_cookie = Cookie::build(("refresh_token", ""))
         .path("/") // must match the path the cookie was set on
         .http_only(true)
-        .same_site(SameSite::Lax)
+        .same_site(SameSite::None) // This allows the cookie to be sent even when the request originates from a different domain (Vercel).
+        .secure(true) //Required by modern browsers whenever SameSite::None is used. This ensures the cookie is only sent over HTTPS (which Railway uses).
         .max_age(time::Duration::ZERO)
         .build();
 

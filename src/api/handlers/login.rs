@@ -26,7 +26,8 @@ pub async fn login_handler(
     let cookie = Cookie::build(("refresh_token", refresh_token))
         .path("/")
         .http_only(true)
-        .same_site(SameSite::Lax)
+        .same_site(SameSite::None) // This allows the cookie to be sent even when the request originates from a different domain (Vercel).
+        .secure(true) //Required by modern browsers whenever SameSite::None is used. This ensures the cookie is only sent over HTTPS (which Railway uses).
         .max_age(time::Duration::days(7))
         .build();
 
