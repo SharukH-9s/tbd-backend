@@ -11,7 +11,7 @@ use http::{HeaderValue, Method};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
 #[tokio::main]
@@ -39,11 +39,13 @@ async fn main() {
 
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
-        .allow_origin(
-            "https://turf-bd-frontend.vercel.app"
+        .allow_origin([
+            "https://turf-bd-frontend.vercel.app" // Vercel deployment
                 .parse::<HeaderValue>()
                 .unwrap(),
-        ) // In production you'd limit this to your friend's specific frontend URL // changing the cors address to my frontend
+            "http://localhost:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
+            "http://127.0.0.1:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
+        ])
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([
             http::header::CONTENT_TYPE,

@@ -1,2 +1,2 @@
 [toolchain]
-channel = "1.92.0"
+channel = "1.92.0" # This line tells the Rust compiler which version to use. It ensures that everyone working on the project uses the exact same compiler version, preventing "it works on my machine" problems.
