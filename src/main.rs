@@ -47,8 +47,12 @@ async fn main() {
             "http://127.0.0.1:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
         ])
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
-        .allow_headers(tower_http::cors::Any) // Allows any headers (useful for custom auth/JSON headers)
-        .allow_credentials(true);
+        .allow_headers([
+            http::header::CONTENT_TYPE,
+            http::header::AUTHORIZATION,
+            http::header::ACCEPT,
+        ])
+        .allow_credentials(true); // This tells the browser: "Yes, I am expecting requests from Vercel to include cookies/credentials."
 
     // 1. Create the axum router
     let final_router = Router::new()
