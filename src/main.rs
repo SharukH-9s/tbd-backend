@@ -40,7 +40,7 @@ async fn main() {
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
         .allow_origin([
-            "https://turf-bd-frontend.vercel.app" // Vercel deployment
+            "turf-bd-frontend-gi8p9zuwy-emp3r0rrs-projects.vercel.app" // Vercel deployment
                 .parse::<HeaderValue>()
                 .unwrap(),
             "http://localhost:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
