@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 #[sqlx(type_name = "text", rename_all = "PascalCase")] // enum variants will be stored as text in the database, and the variants will be renamed to PascalCase (Admin, User)
 pub enum Role {
     Admin,
+    Manager,
     User,
 }
 

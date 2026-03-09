@@ -25,10 +25,17 @@ pub async fn refresh_handler(
     let (new_response_body, new_refresh_token) =
         AuthService::refresh_access_token(&database, &old_token).await?;
 
+    let is_production = std::env::var("PORT").is_ok();
+
     let new_cookie = Cookie::build(("refresh_token", new_refresh_token))
         .path("/")
         .http_only(true)
-        .same_site(axum_extra::extract::cookie::SameSite::Lax)
+        .same_site(if is_production {
+            axum_extra::extract::cookie::SameSite::None
+        } else {
+            axum_extra::extract::cookie::SameSite::Lax
+        })
+        .secure(is_production)
         .max_age(time::Duration::days(7))
         .build();
 

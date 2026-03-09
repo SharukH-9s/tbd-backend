@@ -16,11 +16,17 @@ pub async fn logout_handler(
         AuthService::remove_refresh_token(&database, cookie.value()).await;
     }
 
+    let is_production = std::env::var("PORT").is_ok();
+
     let dead_cookie = Cookie::build(("refresh_token", ""))
         .path("/") // must match the path the cookie was set on
         .http_only(true)
-        .same_site(SameSite::None) // This allows the cookie to be sent even when the request originates from a different domain (Vercel).
-        .secure(true) //Required by modern browsers whenever SameSite::None is used. This ensures the cookie is only sent over HTTPS (which Railway uses).
+        .same_site(if is_production {
+            SameSite::None
+        } else {
+            SameSite::Lax
+        })
+        .secure(is_production)
         .max_age(time::Duration::ZERO)
         .build();
 

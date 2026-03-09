@@ -43,8 +43,12 @@ async fn main() {
             "turf-bd-frontend-gi8p9zuwy-emp3r0rrs-projects.vercel.app" // Vercel deployment
                 .parse::<HeaderValue>()
                 .unwrap(),
-            "http://localhost:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
-            "http://127.0.0.1:5500".parse::<HeaderValue>().unwrap(), // Common Live Server port
+            "http://localhost:5500".parse::<HeaderValue>().unwrap(),
+            "http://localhost:5501".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:5500".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:5501".parse::<HeaderValue>().unwrap(),
+            "http://localhost:6751".parse::<HeaderValue>().unwrap(),
+            "http://127.0.0.1:6751".parse::<HeaderValue>().unwrap(),
         ])
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
         .allow_headers([

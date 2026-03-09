@@ -9,7 +9,10 @@ use bcrypt::{DEFAULT_COST, hash};
 pub struct UserService;
 
 impl UserService {
-    pub async fn register_user( database: &SharedState, payload: &RegisterRequest ) -> Result<UserResponse, AppError> {
+    pub async fn register_user(
+        database: &SharedState,
+        payload: &RegisterRequest,
+    ) -> Result<UserResponse, AppError> {
         // Validation: Check length of username and email first
         if payload.username.trim().len() <= 3 {
             return Err(AppError {
@@ -27,8 +30,18 @@ impl UserService {
 
         // atomic: validates for same username/email and inserts user in one atomic operation
         // this prevents race conditions where two concurrent requests could both pass the uniqueness checks
-        let new_user = UserRepository::insert_user_if_unique( database, (payload.username.clone(),payload.email.clone(), hashed_pass, payload.phone.clone(), Role::User )).await?;
-       
+        let new_user = UserRepository::insert_user_if_unique(
+            database,
+            (
+                payload.username.clone(),
+                payload.email.clone(),
+                hashed_pass,
+                payload.phone.clone(),
+                Role::User,
+            ),
+        )
+        .await?;
+
         // return the new user as a UserResponse.
         Ok(UserResponse::from(&new_user))
     }

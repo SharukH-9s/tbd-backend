@@ -23,11 +23,17 @@ pub async fn login_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let (response_body, refresh_token) = AuthService::authenticate(&database, &payload).await?;
 
+    let is_production = std::env::var("PORT").is_ok(); // Railway sets PORT in production
+
     let cookie = Cookie::build(("refresh_token", refresh_token))
         .path("/")
         .http_only(true)
-        .same_site(SameSite::None) // This allows the cookie to be sent even when the request originates from a different domain (Vercel).
-        .secure(true) //Required by modern browsers whenever SameSite::None is used. This ensures the cookie is only sent over HTTPS (which Railway uses).
+        .same_site(if is_production {
+            SameSite::None
+        } else {
+            SameSite::Lax
+        })
+        .secure(is_production) // Must be true for SameSite::None (Production/HTTPS), false for HTTP (Local Dev)
         .max_age(time::Duration::days(7))
         .build();
 
