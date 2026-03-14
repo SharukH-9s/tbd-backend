@@ -154,7 +154,7 @@ impl TurfRepository {
         .bind(price)
         .bind(manager_id)
         .bind(turf_id)
-        .fetch_one(executor)
+        .fetch_one(executor) // Ok(Turf) or Err(sqlx::Error)
         .await
         .map_err(|e| {
             eprintln!("Database error: {}", e);
@@ -164,5 +164,23 @@ impl TurfRepository {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
             }
         })
+    }
+
+    pub async fn delete_tx(
+        executor: &mut sqlx::PgConnection,
+        id: i32,
+    ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
+        sqlx::query("DELETE FROM turfs WHERE id = $1")
+            .bind(id)
+            .execute(executor)
+            .await
+            .map_err(|e| {
+                eprintln!("Database error: {}", e);
+                AppError {
+                    code: error_codes::DATABASE_ERROR,
+                    message: "Failed to delete turf from database",
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                }
+            })
     }
 }

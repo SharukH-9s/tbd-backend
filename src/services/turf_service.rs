@@ -134,9 +134,9 @@ impl TurfService {
 
     pub async fn update_turf(
         state: &SharedState,
-        turf_id: i32,
-        caller_id: i32,
-        caller_role: crate::domain::models::users::Role,
+        turf_id: i32,                                    // turf_id to update
+        caller_id: i32,                                  // id of the user who is making the request
+        caller_role: crate::domain::models::users::Role, // role of the user who is making the request
         name: Option<String>,
         location: Option<String>,
         description: Option<String>,
@@ -184,8 +184,8 @@ impl TurfService {
             existing_turf.manager_id
         };
 
+        // 4. Admin provided a new manager_id, so verify and auto-promote if needed
         if final_manager_id != existing_turf.manager_id {
-            // 4. Admin provided a new manager_id, so verify and auto-promote if needed
             let user = match UserRepository::find_by_id_tx(&mut *tx, final_manager_id).await? {
                 Some(u) => u,
                 None => {
@@ -277,18 +277,7 @@ impl TurfService {
         }
 
         // 2. Perform delete
-        sqlx::query("DELETE FROM turfs WHERE id = $1")
-            .bind(id)
-            .execute(&mut *tx) // Result<PgQueryResult, sqlx::Error>
-            .await
-            .map_err(|e| {
-                eprintln!("Database error: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to delete turf from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })?;
+        TurfRepository::delete_tx(&mut *tx, id).await?;
 
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
