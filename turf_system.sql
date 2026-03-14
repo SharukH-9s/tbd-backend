@@ -5,10 +5,10 @@
 
 CREATE TABLE turfs (
     id SERIAL PRIMARY KEY,
-    manager_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    manager_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     location TEXT NOT NULL,
-    description TEXT,
+    description TEXT NOT NULL,
     price_per_hour DECIMAL(10, 2) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

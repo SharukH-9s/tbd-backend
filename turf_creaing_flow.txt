@@ -1,0 +1,39 @@
+# Professional Turf Creation Flow (Production Grade)
+
+This document outlines the execution flow for creating a new turf, including Role-Based Access Control (RBAC) and Atomic Transactions.
+
+### 1. The Route Layer (`src/main.rs`)
+The request hits the server at `POST /turfs`.
+- **Action**: The router identifies the URL and method, then hands the request over to the `create_turf` handler.
+
+### 2. The Handler Layer (`src/api/handlers/turf_handlers/create_turf.rs`)
+- **Extraction**: Extracts the JWT Claims (identity/role) and the JSON Payload (turf details).
+- **Security Check (RBAC)**: Checks `claim.role`. If the user is NOT an `Admin`, it rejects with `401 Unauthorized`.
+- **Delegation**: If authorized, calls `TurfService::create_turf`.
+
+### 3. The Service Layer (`src/services/turf_service.rs`)
+This layer acts as the **Orchestrator**. It handles business rules and manages the **Atomic Transaction**.
+
+**The three onboarding scenarios:**
+- **Case 1: The Self-Managed Turf**: Admin omits manager info. `final_manager_id` = Admin's ID.
+- **Case 2: New Partner Onboarding**: Admin provides new details. Service asks `UserRepository` to create a brand-new User.
+- **Case 3: Existing Partner / Auto-Promotion**: Admin provides an existing email. Service links the turf and asks `UserRepository` to **automatically upgrade** the role to `Manager`. 
+  *Note: If registration details (password/username) are sent for an existing email, a **409 Conflict** error is returned for safety.*
+
+**Execution Steps (Separation of Concerns):**
+- **Step A: Transaction Start**: Service executes `db.begin().await` to create a "Security Bubble".
+- **Step B: User Coordination**: Service calls `UserRepository::find_by_email_tx` and `promote_to_manager_tx` (passing the transaction).
+- **Step C: Turf Persistence**: Service calls `TurfRepository::insert_tx` to save the turf within the same bubble.
+- **Step D: Finalization**: Service executes `tx.commit()`. If any step failed, the entire operation is rolled back.
+
+### 4. The Repository Layer (`src/repositories/`)
+Highly specialized "Data Experts" that handle raw SQL execution.
+- **_tx Methods**: Functions like `insert_tx` or `promote_to_manager_tx` accept a mutable reference to the database connection/transaction. 
+- **Role**: They don't make business decisions; they simply execute the SQL commands given by the Service layer.
+
+### 5. The Response Layer
+- **Success**: Returns `201 Created` with a `Json(SuccessResponse)`.
+- **Fail**: Returns a specific `AppError` code (e.g., `TRANSACTION_COMMIT_FAILED`, `USER_CREATION_FAILED`).
+
+---
+*Note: This architecture ensures zero "orphaned" data and maintains a clean separation between "What to do" (Service) and "How to do it" (Repository).*

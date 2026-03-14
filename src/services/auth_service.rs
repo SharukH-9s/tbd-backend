@@ -15,7 +15,7 @@ impl AuthService {
         database: &SharedState,
         payload: &LoginReq,
     ) -> Result<(LoginResponse, String), AppError> {
-        let user = match UserRepository::find_by_email(database, &payload.email).await {
+        let user = match UserRepository::find_by_email(database, &payload.email).await? {
             Some(u) => u,
             None => {
                 return Err(AppError {
@@ -45,14 +45,16 @@ impl AuthService {
         };
 
         let user_id = user.id;
-        let access_token = make_access_token(user_id, &database.jwt_secret)?;
+        let access_token = make_access_token(user_id, user.role.clone(), &database.jwt_secret)?;
 
         let refresh_token = Uuid::new_v4().to_string();
 
         // Delete all existing tokens for this user before issuing a new one.
         // This ensures only one active session at a time.
-        UserRepository::delete_tokens_for_user(database, user_id).await;
-        UserRepository::store_refresh_token(database, refresh_token.clone(), user_id).await;
+        UserRepository::delete_tokens_for_user(database, user_id).await?;
+        println!("Deleted tokens for user {}", user_id);
+        UserRepository::store_refresh_token(database, refresh_token.clone(), user_id).await?;
+        println!("Stored new refresh token for user {}", user_id);
 
         let response = LoginResponse {
             access_token,
@@ -69,12 +71,12 @@ impl AuthService {
         database: &SharedState,
         old_token: &str,
     ) -> Result<(LoginResponse, String), AppError> {
-        let user_id = UserRepository::swap_refresh_token(database, old_token).await?;
+        let (user_id, role) = UserRepository::swap_refresh_token(database, old_token).await?;
 
         let new_refresh_token = Uuid::new_v4().to_string();
-        UserRepository::store_refresh_token(database, new_refresh_token.clone(), user_id).await;
+        UserRepository::store_refresh_token(database, new_refresh_token.clone(), user_id).await?;
 
-        let new_access_token = make_access_token(user_id, &database.jwt_secret)?;
+        let new_access_token = make_access_token(user_id, role, &database.jwt_secret)?;
 
         let response = LoginResponse {
             access_token: new_access_token,
@@ -86,7 +88,10 @@ impl AuthService {
         Ok((response, new_refresh_token))
     }
 
-    pub async fn remove_refresh_token(database: &SharedState, token: &str) {
-        UserRepository::remove_refresh_token(database, token).await;
+    pub async fn remove_refresh_token(
+        database: &SharedState,
+        token: &str,
+    ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
+        UserRepository::remove_refresh_token(database, token).await
     }
 }

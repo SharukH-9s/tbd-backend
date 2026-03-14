@@ -7,16 +7,19 @@ use serde::Serialize;
 
 #[derive(Serialize)]
 pub struct ErrorResponse {
-    pub error: ErrorBody // error is the root key for the error response
+    pub error: ErrorBody, // error is the root key for the error response
 }
 
 #[derive(Serialize)]
-pub struct ErrorBody { // 
+pub struct ErrorBody {
+    //
     pub code: String,
     pub message: String,
 }
 
-pub struct AppError { // struct to hold the error code, message, and status code
+#[derive(Debug)]
+pub struct AppError {
+    // struct to hold the error code, message, and status code
     pub code: &'static str,
     pub message: &'static str,
     pub status: StatusCode,
@@ -38,6 +41,19 @@ pub mod error_codes {
     pub const EXPIRED_TOKEN: &str = "EXPIRED_TOKEN";
     pub const JWT_DECODE_FAILED: &str = "JWT_DECODE_FAILED";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
+
+    // Turf & Manager specific
+    pub const TRANSACTION_START_FAILED: &str = "TRANSACTION_START_FAILED";
+    pub const USER_CREATION_FAILED: &str = "USER_CREATION_FAILED";
+    pub const TURF_CREATION_FAILED: &str = "TURF_CREATION_FAILED";
+    pub const TRANSACTION_COMMIT_FAILED: &str = "TRANSACTION_COMMIT_FAILED";
+    pub const PROMOTION_FAILED: &str = "PROMOTION_FAILED";
+    pub const USER_DETAILS_REQUIRED: &str = "USER_DETAILS_REQUIRED";
+    pub const TURF_UPDATE_FAILED: &str = "TURF_UPDATE_FAILED";
+    pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
+    pub const TURF_NOT_FOUND: &str = "TURF_NOT_FOUND";
+    pub const FORBIDDEN: &str = "FORBIDDEN";
+    pub const MANAGER_ALREADY_ASSIGNED: &str = "MANAGER_ALREADY_ASSIGNED";
 }
 
 // In any error case, we will create an AppError object. As AppError has Intoresponse implemnted on it, that object will be transformed into a response by axum

@@ -30,17 +30,16 @@ impl UserService {
 
         // atomic: validates for same username/email and inserts user in one atomic operation
         // this prevents race conditions where two concurrent requests could both pass the uniqueness checks
-        let new_user = UserRepository::insert_user_if_unique(
-            database,
-            (
-                payload.username.clone(),
-                payload.email.clone(),
-                hashed_pass,
-                payload.phone.clone(),
-                Role::User,
-            ),
-        )
-        .await?;
+        let user_data = (
+            payload.username.clone(),
+            payload.email.clone(),
+            hashed_pass,
+            payload.phone.clone(),
+            Role::User,
+        );
+
+        let new_user = UserRepository::insert_user_if_unique(database, user_data).await?;
+        println!("New user created: {:?}", new_user);
 
         // return the new user as a UserResponse.
         Ok(UserResponse::from(&new_user))

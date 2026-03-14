@@ -13,7 +13,9 @@ pub async fn logout_handler(
     jar: CookieJar,
 ) -> impl IntoResponse {
     if let Some(cookie) = jar.get("refresh_token") {
-        AuthService::remove_refresh_token(&database, cookie.value()).await;
+        if let Ok(_) = AuthService::remove_refresh_token(&database, cookie.value()).await {
+            println!("Refresh token removed successfully");
+        }
     }
 
     let is_production = std::env::var("PORT").is_ok();

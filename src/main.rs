@@ -31,11 +31,13 @@ async fn main() {
         .expect("Failed to connect to the database. Check DATABASE_URL in .env");
 
     println!("Connected to database");
-
     let shared_state: SharedState = Arc::new(AppState {
         db,
         jwt_secret: Arc::new(secret.into_bytes()),
     });
+
+    // Professional Bootstrap: Ensure the root Administrator exists on startup
+    api::utils::seed::ensure_admin_exists(&shared_state).await;
 
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
@@ -50,7 +52,7 @@ async fn main() {
             "http://localhost:6751".parse::<HeaderValue>().unwrap(),
             "http://127.0.0.1:6751".parse::<HeaderValue>().unwrap(),
         ])
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
         .allow_headers([
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,
@@ -67,6 +69,16 @@ async fn main() {
             post(api::handlers::refresh_token::refresh_handler),
         )
         .route("/logout", post(api::handlers::logout::logout_handler))
+        .route(
+            "/turfs",
+            axum::routing::get(api::handlers::turf_handlers::get_all_turfs::get_all_turfs)
+                .post(api::handlers::turf_handlers::create_turf::create_turf),
+        )
+        .route(
+            "/turfs/:id",
+            axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
+                .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
+        )
         // This serves everything in the 'frontend' folder to the internet
         // If a user goes to your URL, it will look for 'index.html' inside that folder
         .fallback_service(ServeDir::new("frontend"))

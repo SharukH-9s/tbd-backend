@@ -1,11 +1,11 @@
-
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize,)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
-    pub sub: i32, // User ID
-    pub exp: i64, // Expiration timestamp (seconds) <--- jsonwebtoken looks specifically for this name!  jsonwebtoken library follows the RFC 7519 standard, which specifically dictates that the field must be named exp.
-    pub iat: i64, // Issued at timestamp
+    pub sub: i32,                                 // User ID
+    pub role: crate::domain::models::users::Role, // User Role
+    pub exp: i64,                                 // Expiration timestamp (seconds)
+    pub iat: i64,                                 // Issued at timestamp
 }
 
 #[derive(Serialize)]

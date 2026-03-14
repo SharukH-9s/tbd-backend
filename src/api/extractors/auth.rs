@@ -131,15 +131,24 @@ where
 /// The lifetime of an access token in seconds (15 minutes).
 pub const ACCESS_TOKEN_LIFETIME_SECS: i64 = 900;
 
-/// this will create a JWT access token for the given user id
-pub fn make_access_token(user_id: i32, secret: &[u8]) -> Result<String, AppError> {
+/// this will create a JWT access token for the given user id and role
+pub fn make_access_token(
+    user_id: i32,
+    role: crate::domain::models::users::Role,
+    secret: &[u8],
+) -> Result<String, AppError> {
     let now = Utc::now();
     let claims = Claims {
         sub: user_id,
+        role,
         iat: now.timestamp(),
         exp: (now + Duration::minutes(15)).timestamp(),
     };
-    encode(&Header::default(), &claims, &EncodingKey::from_secret(secret))
+    encode(
+        &Header::default(),
+        &claims,
+        &EncodingKey::from_secret(secret),
+    )
     .map_err(|_| AppError {
         code: error_codes::JWT_ENCODE_FAIL,
         message: "Couldn't encode the JWT!",

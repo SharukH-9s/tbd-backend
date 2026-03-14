@@ -14,19 +14,19 @@ pub struct RegisterRequest {
     pub phone: String,
 }
 
-pub async fn register( State(database): State<SharedState>, Json(payload): Json<RegisterRequest>,) -> Result<impl IntoResponse, AppError> {
-  
+pub async fn register(
+    State(database): State<SharedState>,
+    Json(payload): Json<RegisterRequest>,
+) -> Result<impl IntoResponse, AppError> {
     // passing the payload and database to the service layer. then store the user_response in response_data
-    let response_data = UserService::register_user(&database, &payload).await?; // if register_request returns any AppError, the `?` operator will automatically return it
-    
+    let user = UserService::register_user(&database, &payload).await?; // if register_request returns any AppError, the `?` operator will automatically return it
+
     // if no error is returned, then return the response_data in Json format with status code 201
     Ok((
         StatusCode::CREATED,
         Json(SuccessResponse {
             message: "Registered successfully".to_string(),
-            data: response_data,
+            data: user,
         }),
     )) // StatusCode and Json are both IntoResponse trait objects. So, axum will automatically convert them into a response.
-    
 }
-
