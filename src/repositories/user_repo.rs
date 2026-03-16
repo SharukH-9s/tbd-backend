@@ -156,15 +156,26 @@ impl UserRepository {
         executor: &mut sqlx::PgConnection,
         user_id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
+        Self::set_role_tx(executor, user_id, Role::Manager).await
+    }
+
+    pub async fn set_role_tx(
+        executor: &mut sqlx::PgConnection,
+        user_id: i32,
+        role: Role,
+    ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
         sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
-            .bind(Role::Manager)
+            .bind(role)
             .bind(user_id)
-            .execute(executor) // Result<u64, sqlx::Error>
+            .execute(executor)
             .await
-            .map_err(|_| AppError {
-                code: error_codes::PROMOTION_FAILED,
-                message: "Failed to upgrade user to Manager role",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
+            .map_err(|e| {
+                eprintln!("Database error in set_role_tx: {}", e);
+                AppError {
+                    code: error_codes::DATABASE_ERROR,
+                    message: "Failed to update user role",
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                }
             })
     }
 

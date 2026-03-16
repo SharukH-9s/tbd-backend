@@ -235,6 +235,19 @@ impl TurfService {
         )
         .await?;
 
+        // 7. Demote OLD manager if they have no other turfs left
+        let old_manager_id = existing_turf.manager_id;
+        if final_manager_id != old_manager_id {
+            if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, old_manager_id).await? {
+                if let Some(user) = UserRepository::find_by_id_tx(&mut *tx, old_manager_id).await? {
+                    if matches!(user.role, crate::domain::models::users::Role::Manager) {
+                        UserRepository::set_role_tx(&mut *tx, old_manager_id, crate::domain::models::users::Role::User).await?;
+                        println!("Old Manager {} demoted to User role after turf reassignment", old_manager_id);
+                    }
+                }
+            }
+        }
+
         // --- COMMIT TRANSACTION ---
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
@@ -267,17 +280,35 @@ impl TurfService {
         })?;
 
         // 1. Verify existence inside transaction
-        let existing = TurfRepository::find_by_id_tx(&mut *tx, id).await?;
-        if existing.is_none() {
-            return Err(AppError {
-                code: error_codes::TURF_NOT_FOUND,
-                message: "Turf not found",
-                status: StatusCode::NOT_FOUND,
-            });
-        }
+        let existing_turf = match TurfRepository::find_by_id_tx(&mut *tx, id).await? {
+            Some(t) => t,
+            None => {
+                return Err(AppError {
+                    code: error_codes::TURF_NOT_FOUND,
+                    message: "Turf not found",
+                    status: StatusCode::NOT_FOUND,
+                });
+            }
+        };
+
+        let manager_id = existing_turf.manager_id;
 
         // 2. Perform delete
         TurfRepository::delete_tx(&mut *tx, id).await?;
+
+        // 3. Demote manager if they have no other turfs
+        // Since we have a UNIQUE constraint on manager_id in the turfs table, 
+        // they definitely have 0 turfs now. But let's check properly for future flexibility.
+        if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, manager_id).await? {
+            // Get user to check current role
+            if let Some(user) = UserRepository::find_by_id_tx(&mut *tx, manager_id).await? {
+                // Only demote if they are currently a Manager (don't touch Admins)
+                if matches!(user.role, crate::domain::models::users::Role::Manager) {
+                     UserRepository::set_role_tx(&mut *tx, manager_id, crate::domain::models::users::Role::User).await?;
+                     println!("User {} demoted to User role after turf deletion", manager_id);
+                }
+            }
+        }
 
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
