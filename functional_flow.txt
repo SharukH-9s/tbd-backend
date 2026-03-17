@@ -1,0 +1,200 @@
+# API Functional Flow Guide - TBD Backend
+
+This document outlines the step-by-step logic flow for every API endpoint in the system, including the internal pipeline from Request to Response.
+
+## 0. The Global Request Pipeline (Pre-Handler Logic)
+Before ANY protected API handler is executed, the following "silent" flow happens:
+1. **HTTP Request** hits the server (Axum).
+2. **CORS Layer:** Checks if the origin (frontend URL) is allowed.
+3. **Extractor Phase (`FromRequestParts`):** 
+   - If the handler requires `Claims`, the system runs `api::extractors::auth::from_request_parts`.
+   - **Logic:** It looks for `Authorization: Bearer <JWT>` in headers.
+   - It decodes the JWT using the `JWT_SECRET`.
+   - If the token is missing, expired, or invalid, it returns a `401 Unauthorized` immediately without ever calling your handler.
+4. **JSON Extractor:** Axum parses the raw body into the requested Rust struct (e.g., `RegisterRequest`). If parsing fails (invalid JSON), it returns `400 Bad Request`.
+
+---
+
+## 0.1 System Initialization (On Startup)
+- **Flow:** `main` -> `api::utils::seed::ensure_admin_exists`
+- **Logic:**
+  1. Checks the database for a user with the email "admin@admin.com".
+  2. If not found, it hashes a default password and creates the root Admin account.
+  3. This ensures the system is always manageable from the first boot.
+
+---
+
+## 1. User Registration (`POST /register`)
+**Purpose:** Creates a new user account in the system.
+- **Handler:** `api::handlers::register::register`
+  - Extracts user details (username, email, password, phone) from the JSON body.
+- **Service:** `UserService::register_user`
+  - Validates username length.
+  - Hashes the password using `bcrypt`.
+- **Repository:** `UserRepository::insert_user_if_unique`
+  - Checks if the email or username already exists in the database.
+  - Inserts the user record into the `users` table.
+- **Response:** Returns the created user details (excluding password) with status `201 Created`.
+
+---
+
+## 2. User Login (`POST /login`)
+**Purpose:** Authenticates a user and issues security tokens.
+- **Handler:** `api::handlers::login::login_handler`
+  - Receives email and password.
+- **Service:** `AuthService::authenticate`
+  - Calls `UserRepository::find_by_email` to fetch the user.
+  - Compares the provided password with the stored hash using `bcrypt::verify`.
+  - Generates a **JWT Access Token** (short-lived) and a **Refresh Token** (long-lived UUID).
+- **Repository:** `UserRepository::delete_tokens_for_user`
+  - Ensures only one active session by deleting old refresh tokens for that user.
+- **Repository:** `UserRepository::store_refresh_token`
+  - Saves the new refresh token in the database.
+- **Response:** Sets the Refresh Token in a Secure HTTP-only Cookie and returns the Access Token in JSON.
+
+---
+
+## 3. Refresh Token (`POST /refresh`)
+**Purpose:** Exchanges an expired Access Token for a new one using a Refresh Token.
+- **Handler:** `api::handlers::refresh_token::refresh_handler`
+  - Extracts the Refresh Token from the request cookies.
+- **Service:** `AuthService::refresh_access_token`
+  - Calls `UserRepository::swap_refresh_token` to verify and delete the old token in one atomic step.
+  - Generates a NEW Access Token and a NEW Refresh Token (Token Rotation for security).
+- **Repository:** `UserRepository::store_refresh_token`
+  - Saves the new refresh token.
+- **Response:** Updates the Refresh Token cookie and sends a new Access Token.
+
+---
+
+## 4. Logout (`POST /logout`)
+**Purpose:** Ends the user session.
+- **Handler:** `api::handlers::logout::logout_handler`
+  - Retrieves the refresh token from cookies.
+- **Service:** `AuthService::remove_refresh_token`
+- **Repository:** `UserRepository::remove_refresh_token`
+  - Deletes the token from the database so it can never be used again.
+- **Response:** Clears the cookie in the browser and returns success.
+
+---
+
+## 5. Get All Turfs (`GET /turfs`)
+**Purpose:** Retrieves a list of all available football/sports turfs.
+- **Handler:** `api::handlers::turf_handlers::get_all_turfs::get_all_turfs`
+- **Service:** `TurfService::get_all_turfs`
+- **Repository:** `TurfRepository::find_all`
+  - Executes a `SELECT` query on the `turfs` table.
+- **Response:** Returns an array of Turf objects.
+
+---
+
+## 6. Create Turf (`POST /turfs`)
+**Purpose:** Allows an Admin to create a new turf listing with flexible manager onboarding.
+- **Pipeline:** Requires `Claims` extractor (Verified Admin token).
+- **Handler:** `api::handlers::turf_handlers::create_turf::create_turf`
+  - Extracts `Claims` (caller identity/role) and the `CreateTurfRequest` JSON body (name, location, description, price_per_hour, and optional manager_email, manager_password, manager_username).
+  - **Security Check (RBAC):** `if !matches!(claim.role, Role::Admin)` → Returns `401 Unauthorized`. Only Admins may call this endpoint.
+  - Calls `TurfService::create_turf`, passing `claim.sub` as the `creator_id`.
+- **Service:** `TurfService::create_turf` (entire body is inside an Atomic Database Transaction)
+  - **Transaction Start:** `state.db.begin().await` opens a transaction. On any failure, all changes roll back automatically.
+  - `final_manager_id` is initialised to `creator_id` (the Admin's own ID) as the safe default.
+
+  **Branch A — `manager_email` is provided:**
+  `UserRepository::find_by_email_tx` is called inside the transaction.
+
+  - **Case A1 — Email exists (Existing User):**
+    - **Conflict Check:** If `manager_password` or `manager_username` are also provided → returns `409 Conflict` (`EMAIL_EXISTS`). The caller must omit those fields when linking an existing account.
+    - `final_manager_id` is set to the found user's ID.
+    - **One-Turf-Per-Manager Check** (skipped if the linked user is an Admin): `TurfRepository::find_by_manager_id_tx` checks if the user already manages a turf → returns `409 Conflict` (`MANAGER_ALREADY_ASSIGNED`) if true.
+    - **Auto-Promotion:** If the user's role is neither `Manager` nor `Admin`, `UserRepository::promote_to_manager_tx` upgrades them to `Manager` automatically.
+
+  - **Case A2 — Email does not exist (New Partner Onboarding):**
+    - If `manager_password` AND `manager_username` are both provided:
+      - Password is hashed with `bcrypt`.
+      - `UserRepository::insert_user_tx` creates a brand-new user with `Role::Manager` and a placeholder phone number.
+      - `final_manager_id` is set to the newly created user's ID.
+    - If either `manager_password` or `manager_username` is missing → returns `400 Bad Request` (`USER_DETAILS_REQUIRED`). An unknown email requires both fields to onboard.
+
+  **Branch B — `manager_email` is NOT provided (Self-Managed / Admin as Manager):**
+  - The turf will be assigned to the Admin creator themselves (`final_manager_id` = `creator_id`).
+  - **One-Turf-Per-Manager Check** (skipped if the creator is an Admin): `TurfRepository::find_by_manager_id_tx` checks if the creator already manages a turf → returns `409 Conflict` (`MANAGER_ALREADY_ASSIGNED`) if true.
+
+  **Turf Insertion (all branches converge here):**
+  - `TurfRepository::insert_tx` inserts the turf record with the resolved `final_manager_id`, name, location, description, and price.
+  - **Transaction Commit:** `tx.commit().await` persists all changes atomically. On commit failure → returns `500 Internal Server Error` (`TRANSACTION_COMMIT_FAILED`).
+- **Response:** `201 Created` with `SuccessResponse { message, data: Turf }`.
+
+---
+
+## 7. Update Turf (`PUT /turfs/:id`)
+**Purpose:** Updates turf details or re-assigns the manager, with automatic role promotion/demotion.
+- **Pipeline:** Requires `Claims` extractor.
+- **Handler:** `api::handlers::turf_handlers::update_turf::update_turf_handler`
+  - Extracts `Claims`, the turf `:id` path parameter, and the `UpdateTurfRequest` JSON body (all fields optional: name, location, description, price_per_hour, manager_id).
+  - Calls `TurfService::update_turf` with the caller's `id` and `role`.
+- **Service:** `TurfService::update_turf` (entire body is inside an Atomic Database Transaction)
+  - **Transaction Start:** `state.db.begin().await` opens a transaction.
+
+  **Step 1 — Existence Check:**
+  - `TurfRepository::find_by_id_tx` fetches the existing turf.
+  - If not found → returns `404 Not Found` (`TURF_NOT_FOUND`).
+
+  **Step 2 — Security Check (RBAC):**
+  - `is_admin` = caller's role is `Admin`.
+  - `is_owner` = existing turf's `manager_id` equals caller's `id`.
+  - If neither `is_admin` nor `is_owner` → returns `403 Forbidden` (`FORBIDDEN`). A manager from a different turf cannot edit this one.
+
+  **Step 3 — Resolve Final Manager ID:**
+  - **If caller is Admin:** `final_manager_id` = `requested_manager_id` from payload, or the existing `manager_id` if none was provided (`unwrap_or`).
+  - **If caller is a Manager (owner):** `final_manager_id` is always locked to the existing `manager_id`. Managers cannot re-assign their own turf.
+
+  **Step 4 — New Manager Validation** (only runs if `final_manager_id != existing_turf.manager_id`, i.e., Admin is reassigning):
+  - `UserRepository::find_by_id_tx` looks up the new manager by ID.
+  - If not found → returns `400 Bad Request` (`USER_NOT_FOUND`).
+  - **One-Turf-Per-Manager Check** (skipped if the new manager is an Admin): `TurfRepository::find_by_manager_id_tx` checks if they already manage a turf → returns `409 Conflict` (`MANAGER_ALREADY_ASSIGNED`) if true.
+  - **Auto-Promotion:** If the new manager's role is neither `Manager` nor `Admin`, `UserRepository::promote_to_manager_tx` upgrades them automatically.
+
+  **Step 5 — Field Merge:**
+  - Each of `name`, `location`, `description`, and `price_per_hour` uses `unwrap_or(existing_value)` — if the field was omitted from the request, the old value is kept. This enables partial updates.
+
+  **Step 6 — Turf Update:**
+  - `TurfRepository::update_tx` executes the SQL `UPDATE` with all final values and returns the updated `Turf`.
+
+  **Step 7 — Auto-Demotion of Old Manager** (only runs if manager was changed):
+  - `TurfRepository::find_by_manager_id_tx` checks if the old manager still manages any turf.
+  - If they have no turfs left AND their current role is `Manager` (not Admin): `UserRepository::set_role_tx` demotes them back to `Role::User`.
+  - This ensures roles stay clean — nobody keeps the `Manager` role without actually managing a turf.
+
+  **Transaction Commit:** `tx.commit().await` persists all changes atomically. On commit failure → returns `500 Internal Server Error` (`TRANSACTION_COMMIT_FAILED`).
+- **Response:** `200 OK` with `SuccessResponse { message, data: Turf }`.
+
+---
+
+## 8. Delete Turf (`DELETE /turfs/:id`)
+**Purpose:** Permanently removes a turf from the system and auto-demotes its manager if they have no other turfs.
+- **Pipeline:** Requires `Claims` extractor.
+- **Handler:** `api::handlers::turf_handlers::delete_turf::delete_turf_handler`
+  - Extracts `Claims` and the turf `:id` path parameter.
+  - **Security Check (RBAC):** Only `Role::Admin` is allowed. If not Admin → returns `403 Forbidden`. This check happens at the **Service layer** before the transaction even opens.
+  - Calls `TurfService::delete_turf` with the turf `id` and `caller_role`.
+- **Service:** `TurfService::delete_turf` (entire body is inside an Atomic Database Transaction)
+  - **Transaction Start:** `state.db.begin().await` opens a transaction.
+
+  **Step 1 — Existence Check:**
+  - `TurfRepository::find_by_id_tx` fetches the turf inside the transaction.
+  - If not found → returns `404 Not Found` (`TURF_NOT_FOUND`). Avoids operating on a non-existent record.
+  - The turf's `manager_id` is saved before deletion for use in the demotion step.
+
+  **Step 2 — Delete:**
+  - `TurfRepository::delete_tx` executes `DELETE FROM turfs WHERE id = $1`.
+
+  **Step 3 — Auto-Demotion of Manager** (always runs after delete):
+  - `TurfRepository::find_by_manager_id_tx` checks if the deleted turf's manager still manages any other turf.
+  - If they have **no turfs left** AND their current role is `Manager` (not Admin): `UserRepository::set_role_tx` demotes them back to `Role::User`.
+  - This keeps roles clean — a user who no longer manages anything should not hold the `Manager` role.
+  - Admins assigned as managers are never demoted.
+
+  **Transaction Commit:** `tx.commit().await` persists the delete and demotion together atomically. On commit failure → returns `500 Internal Server Error` (`TRANSACTION_COMMIT_FAILED`).
+- **Response:** `204 No Content` with `SuccessResponse { message: "Turf deleted successfully", data: () }`.
+
+  > **Note:** Even though `204 No Content` conventionally means no body, the handler returns a JSON body. This is a minor inconsistency — a truly standards-compliant `204` should have no body.

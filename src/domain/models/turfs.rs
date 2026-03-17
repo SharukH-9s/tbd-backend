@@ -9,7 +9,6 @@ pub struct Turf {
     pub name: String,
     pub location: String,
     pub description: String,
-    pub price_per_hour: bigdecimal::BigDecimal,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -19,7 +18,6 @@ pub struct CreateTurfRequest {
     pub name: String,
     pub location: String,
     pub description: String,
-    pub price_per_hour: bigdecimal::BigDecimal,
 
     // Linked Manager Creation (Concierge Onboarding)
     pub manager_email: Option<String>,
@@ -32,6 +30,5 @@ pub struct UpdateTurfRequest {
     pub name: Option<String>,
     pub location: Option<String>,
     pub description: Option<String>,
-    pub price_per_hour: Option<bigdecimal::BigDecimal>,
     pub manager_id: Option<i32>, // Admin can use this to re-assign!
 }

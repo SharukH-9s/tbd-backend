@@ -78,18 +78,16 @@ impl TurfRepository {
         name: &str,
         location: &str,
         description: &str,
-        price: bigdecimal::BigDecimal,
     ) -> Result<Turf, AppError> {
         query_as::<_, Turf>(
-            "INSERT INTO turfs (manager_id, name, location, description, price_per_hour)
-             VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO turfs (manager_id, name, location, description)
+             VALUES ($1, $2, $3, $4)
              RETURNING *",
         )
         .bind(manager_id)
         .bind(name)
         .bind(location)
         .bind(description)
-        .bind(price)
         .fetch_one(executor) // Ok(Turf) or Err(sqlx::Error)
         .await
         .map_err(|e| {
@@ -108,18 +106,16 @@ impl TurfRepository {
         name: &str,
         location: &str,
         description: &str,
-        price: bigdecimal::BigDecimal,
         manager_id: i32,
     ) -> Result<Turf, AppError> {
         query_as::<_, Turf>(
-            "UPDATE turfs SET name = $1, location = $2, description = $3, price_per_hour = $4, manager_id = $5, updated_at = NOW()
-             WHERE id = $6
+            "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4, updated_at = NOW()
+             WHERE id = $5
              RETURNING *"
         )
         .bind(name)
         .bind(location)
         .bind(description)
-        .bind(price)
         .bind(manager_id)
         .bind(id)
         .fetch_one(&state.db)
@@ -140,18 +136,16 @@ impl TurfRepository {
         name: &str,
         location: &str,
         description: &str,
-        price: bigdecimal::BigDecimal,
         manager_id: i32,
     ) -> Result<Turf, AppError> {
         query_as::<_, Turf>(
-            "UPDATE turfs SET name = $1, location = $2, description = $3, price_per_hour = $4, manager_id = $5, updated_at = NOW()
-             WHERE id = $6
+            "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4, updated_at = NOW()
+             WHERE id = $5
              RETURNING *"
         )
         .bind(name)
         .bind(location)
         .bind(description)
-        .bind(price)
         .bind(manager_id)
         .bind(turf_id)
         .fetch_one(executor) // Ok(Turf) or Err(sqlx::Error)

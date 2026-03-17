@@ -52,7 +52,13 @@ async fn main() {
             "http://localhost:6751".parse::<HeaderValue>().unwrap(),
             "http://127.0.0.1:6751".parse::<HeaderValue>().unwrap(),
         ])
-        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+        .allow_methods([
+            Method::GET,
+            Method::POST,
+            Method::PUT,
+            Method::DELETE,
+            Method::OPTIONS,
+        ])
         .allow_headers([
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,
@@ -76,8 +82,22 @@ async fn main() {
         )
         .route(
             "/turfs/:id",
-            axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
+            axum::routing::get(api::handlers::turf_handlers::get_turf::get_a_turf_by_id)
+                .put(api::handlers::turf_handlers::update_turf::update_turf_handler)
                 .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
+        )
+        .route(
+            "/turfs/:id/games",
+            axum::routing::post(api::handlers::game_handlers::create_game::create_game_handler)
+                .get(api::handlers::game_handlers::get_games::get_games_handler),
+        )
+        .route(
+            "/games/:id",
+            axum::routing::get(
+                api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler,
+            )
+            .put(api::handlers::game_handlers::update_game::update_game_handler)
+            .delete(api::handlers::game_handlers::delete_game::delete_game_handler),
         )
         // This serves everything in the 'frontend' folder to the internet
         // If a user goes to your URL, it will look for 'index.html' inside that folder

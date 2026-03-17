@@ -12,13 +12,25 @@ impl TurfService {
         TurfRepository::find_all(state).await
     }
 
+    pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
+        let turf = TurfRepository::find_by_id(state, id).await?;
+        match turf {
+            Some(t) => Ok(t),
+            None => Err(AppError {
+                code: error_codes::TURF_NOT_FOUND,
+                message: "Turf not found",
+                status: StatusCode::NOT_FOUND,
+            }),
+        }
+    }
+
     pub async fn create_turf(
         state: &SharedState,
         creator_id: i32,
+        creator_role: crate::domain::models::users::Role,
         name: &str,
         location: &str,
         description: &str,
-        price: bigdecimal::BigDecimal,
         manager_email: Option<String>,
         manager_password: Option<String>,
         manager_username: Option<String>,
@@ -50,14 +62,17 @@ impl TurfService {
                 final_manager_id = user.id;
 
                 // --- ONE TURF PER MANAGER CHECK ---
-                if let Some(_) =
-                    TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
-                {
-                    return Err(AppError {
-                        code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                        message: "This user is already managing another turf.",
-                        status: StatusCode::CONFLICT,
-                    });
+                // Only skip if the person being ASSIGNED is an Admin.
+                if !matches!(user.role, crate::domain::models::users::Role::Admin) {
+                    if let Some(_) =
+                        TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
+                    {
+                        return Err(AppError {
+                            code: error_codes::MANAGER_ALREADY_ASSIGNED,
+                            message: "This user is already managing another turf.",
+                            status: StatusCode::CONFLICT,
+                        });
+                    }
                 }
 
                 // --- AUTO-PROMOTION LOGIC ---
@@ -100,27 +115,24 @@ impl TurfService {
 
         // 2. CHECK FOR CREATOR (If no email was provided, we still check the creator)
         if manager_email.is_none() {
-            if let Some(_) =
-                TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
-            {
-                return Err(AppError {
-                    code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                    message: "You are already managing another turf. One manager per turf allowed.",
-                    status: StatusCode::CONFLICT,
-                });
+            // Only enforce the rule if the creator (who is now the manager) is NOT an Admin.
+            if !matches!(creator_role, crate::domain::models::users::Role::Admin) {
+                if let Some(_) =
+                    TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
+                {
+                    return Err(AppError {
+                        code: error_codes::MANAGER_ALREADY_ASSIGNED,
+                        message: "You are already managing another turf. One manager per turf allowed.",
+                        status: StatusCode::CONFLICT,
+                    });
+                }
             }
         }
 
         // 3. Create the turf
-        let newly_created_turf = TurfRepository::insert_tx(
-            &mut *tx,
-            final_manager_id,
-            name,
-            location,
-            description,
-            price,
-        )
-        .await?;
+        let newly_created_turf =
+            TurfRepository::insert_tx(&mut *tx, final_manager_id, name, location, description)
+                .await?;
 
         // --- COMMIT TRANSACTION ---
         tx.commit().await.map_err(|_| AppError {
@@ -140,7 +152,6 @@ impl TurfService {
         name: Option<String>,
         location: Option<String>,
         description: Option<String>,
-        price_per_hour: Option<bigdecimal::BigDecimal>,
         requested_manager_id: Option<i32>,
     ) -> Result<Turf, AppError> {
         // --- START TRANSACTION ---
@@ -198,14 +209,17 @@ impl TurfService {
             };
 
             // --- ONE TURF PER MANAGER CHECK ---
-            if let Some(_) =
-                TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
-            {
-                return Err(AppError {
-                    code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                    message: "The requested manager is already assigned to another turf.",
-                    status: StatusCode::CONFLICT,
-                });
+            // Admins can manage multiple turfs.
+            if !matches!(user.role, crate::domain::models::users::Role::Admin) {
+                if let Some(_) =
+                    TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
+                {
+                    return Err(AppError {
+                        code: error_codes::MANAGER_ALREADY_ASSIGNED,
+                        message: "The requested manager is already assigned to another turf.",
+                        status: StatusCode::CONFLICT,
+                    });
+                }
             }
 
             // 4.1 Auto-Promote the manager
@@ -221,7 +235,6 @@ impl TurfService {
         let final_name = name.unwrap_or(existing_turf.name);
         let final_location = location.unwrap_or(existing_turf.location);
         let final_description = description.unwrap_or(existing_turf.description);
-        let final_price = price_per_hour.unwrap_or(existing_turf.price_per_hour);
 
         // 6. Perform the actual Turf update
         let updated_turf = TurfRepository::update_tx(
@@ -230,7 +243,6 @@ impl TurfService {
             &final_name,
             &final_location,
             &final_description,
-            final_price,
             final_manager_id,
         )
         .await?;
@@ -241,8 +253,16 @@ impl TurfService {
             if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, old_manager_id).await? {
                 if let Some(user) = UserRepository::find_by_id_tx(&mut *tx, old_manager_id).await? {
                     if matches!(user.role, crate::domain::models::users::Role::Manager) {
-                        UserRepository::set_role_tx(&mut *tx, old_manager_id, crate::domain::models::users::Role::User).await?;
-                        println!("Old Manager {} demoted to User role after turf reassignment", old_manager_id);
+                        UserRepository::set_role_tx(
+                            &mut *tx,
+                            old_manager_id,
+                            crate::domain::models::users::Role::User,
+                        )
+                        .await?;
+                        println!(
+                            "Old Manager {} demoted to User role after turf reassignment",
+                            old_manager_id
+                        );
                     }
                 }
             }
@@ -297,15 +317,23 @@ impl TurfService {
         TurfRepository::delete_tx(&mut *tx, id).await?;
 
         // 3. Demote manager if they have no other turfs
-        // Since we have a UNIQUE constraint on manager_id in the turfs table, 
+        // Since we have a UNIQUE constraint on manager_id in the turfs table,
         // they definitely have 0 turfs now. But let's check properly for future flexibility.
         if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, manager_id).await? {
             // Get user to check current role
             if let Some(user) = UserRepository::find_by_id_tx(&mut *tx, manager_id).await? {
                 // Only demote if they are currently a Manager (don't touch Admins)
                 if matches!(user.role, crate::domain::models::users::Role::Manager) {
-                     UserRepository::set_role_tx(&mut *tx, manager_id, crate::domain::models::users::Role::User).await?;
-                     println!("User {} demoted to User role after turf deletion", manager_id);
+                    UserRepository::set_role_tx(
+                        &mut *tx,
+                        manager_id,
+                        crate::domain::models::users::Role::User,
+                    )
+                    .await?;
+                    println!(
+                        "User {} demoted to User role after turf deletion",
+                        manager_id
+                    );
                 }
             }
         }

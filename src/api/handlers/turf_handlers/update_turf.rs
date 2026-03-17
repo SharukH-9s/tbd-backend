@@ -21,7 +21,6 @@ pub async fn update_turf_handler(
         payload.name,
         payload.location,
         payload.description,
-        payload.price_per_hour,
         payload.manager_id,
     )
     .await?;

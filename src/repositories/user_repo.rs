@@ -167,7 +167,7 @@ impl UserRepository {
         sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
             .bind(role)
             .bind(user_id)
-            .execute(executor)
+            .execute(executor) // Result<u64, sqlx::Error>
             .await
             .map_err(|e| {
                 eprintln!("Database error in set_role_tx: {}", e);

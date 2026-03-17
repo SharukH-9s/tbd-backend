@@ -36,10 +36,10 @@ pub async fn create_turf(
     let newly_created_turf = TurfService::create_turf(
         &database,
         claim.sub,
+        claim.role,
         &payload.name,
         &payload.location,
         &payload.description, // &String -> &str
-        payload.price_per_hour.clone(),
         payload.manager_email.clone(),
         payload.manager_password.clone(),
         payload.manager_username.clone(),

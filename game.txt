@@ -1,0 +1,52 @@
+# Games Feature — Implementation Checklist
+
+## Step 1: domain/models/games.rs
+- [x] Game struct (mirrors DB row: id, turf_id, name, price_per_hour, created_at)
+- [x] CreateGameRequest struct (name: String, price_per_hour: BigDecimal)
+- [x] UpdateGameRequest struct (name: Option<String>, price_per_hour: Option<BigDecimal>)
+- [x] Register in domain/models/mod.rs
+
+## Step 2: repositories/game_repo.rs
+- [x] insert_tx(executor, turf_id, name, price) -> Result<Game, AppError>
+- [x] find_by_turf_id(state, turf_id) -> Result<Vec<Game>, AppError>
+- [x] find_by_id_tx(executor, id) -> Result<Option<Game>, AppError>
+- [x] update_tx(executor, id, name, price) -> Result<Game, AppError>
+- [x] delete_tx(executor, id) -> Result<PgQueryResult, AppError>
+- [x] Register in repositories/mod.rs
+
+## Step 3: services/game_service.rs
+- [x] create_game(state, turf_id, caller_id, caller_role, name, price) -> Result<Game, AppError>
+      - Verify turf exists
+      - Verify caller is the turf owner OR Admin
+      - Insert game inside transaction
+- [x] get_games_for_turf(state, turf_id) -> Result<Vec<Game>, AppError>
+      - Verify turf exists
+      - Return all games for that turf
+- [x] update_game(state, game_id, caller_id, caller_role, name, price) -> Result<Game, AppError>
+      - Fetch game, get its turf_id
+      - Verify caller is owner or admin
+      - Partial update (only change provided fields)
+- [x] delete_game(state, game_id, caller_id, caller_role) -> Result<(), AppError>
+      - Fetch game, get its turf_id
+      - Verify caller is the turf owner OR Admin
+      - Delete game (slots cascade automatically)
+- [x] Register in services/mod.rs
+
+## Step 4: api/handlers/game_handlers/
+- [x] mod.rs
+- [x] create_game.rs  → POST /turfs/:id/games
+- [x] get_games.rs    → GET  /turfs/:id/games
+- [x] update_game.rs  → PUT    /games/:id
+- [x] delete_game.rs  → DELETE /games/:id
+- [x] Register in api/handlers/mod.rs
+
+## Step 5: main.rs — Wire Routes
+- [x] POST   /turfs/:id/games  → create_game handler
+- [x] GET    /turfs/:id/games    → get_games handler
+- [x] GET    /games/:id          → get_game_by_id handler
+- [x] PUT    /games/:id          → update_game handler
+- [x] DELETE /games/:id          → delete_game handler
+
+## Error Codes to Add (domain/errors.rs)
+- [x] GAME_NOT_FOUND
+- [x] GAME_ACCESS_DENIED  (caller is not the turf owner or admin)

@@ -54,6 +54,8 @@ pub mod error_codes {
     pub const TURF_NOT_FOUND: &str = "TURF_NOT_FOUND";
     pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const MANAGER_ALREADY_ASSIGNED: &str = "MANAGER_ALREADY_ASSIGNED";
+    pub const GAME_NOT_FOUND: &str = "GAME_NOT_FOUND";
+    pub const GAME_ACCESS_DENIED: &str = "GAME_ACCESS_DENIED";
 }
 
 // In any error case, we will create an AppError object. As AppError has Intoresponse implemnted on it, that object will be transformed into a response by axum
