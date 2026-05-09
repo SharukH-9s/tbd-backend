@@ -46,6 +46,9 @@ async fn main() {
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
         .allow_origin([
+                "https://unique-kelpie-7632c3.netlify.app"
+                .parse::<HeaderValue>()
+                .unwrap(),
         ])
         .allow_methods([
             Method::GET,
