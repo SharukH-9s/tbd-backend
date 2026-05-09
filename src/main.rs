@@ -46,17 +46,6 @@ async fn main() {
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
         .allow_origin([
-            "https://turf-bd-frontend.vercel.app"
-                .parse::<HeaderValue>()
-                .unwrap(),
-            "http://localhost:5500".parse::<HeaderValue>().unwrap(),
-            "http://localhost:5501".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:5500".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:5501".parse::<HeaderValue>().unwrap(),
-            "http://localhost:6751".parse::<HeaderValue>().unwrap(),
-            "http://127.0.0.1:6751".parse::<HeaderValue>().unwrap(),
-            "http://localhost:5173".parse::<HeaderValue>().unwrap(), // Vite local port
-            "http://127.0.0.1:5173".parse::<HeaderValue>().unwrap(), // Vite local port
         ])
         .allow_methods([
             Method::GET,
@@ -75,6 +64,7 @@ async fn main() {
 
     // 1. Create the axum router
     let final_router = Router::new()
+        .route("/health", axum::routing::get(|| async { "OK" }))
         .route("/register", post(api::handlers::register::register))
         .route("/login", post(api::handlers::login::login_handler))
         .route(
