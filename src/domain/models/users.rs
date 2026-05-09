@@ -56,3 +56,11 @@ impl From<&User> for UserResponse {
         }
     }
 }
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateProfileRequest {
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub phone: Option<String>,
+    pub location: Option<String>,
+}

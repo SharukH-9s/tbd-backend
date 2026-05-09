@@ -1,7 +1,8 @@
 target
 .env
 *.resolved
-db.txt
-structure.txt
+*.txt
+*.md
+*.sql
 debug.log
 frontend/

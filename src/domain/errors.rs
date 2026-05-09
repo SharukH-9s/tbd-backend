@@ -44,18 +44,34 @@ pub mod error_codes {
 
     // Turf & Manager specific
     pub const TRANSACTION_START_FAILED: &str = "TRANSACTION_START_FAILED";
-    pub const USER_CREATION_FAILED: &str = "USER_CREATION_FAILED";
-    pub const TURF_CREATION_FAILED: &str = "TURF_CREATION_FAILED";
     pub const TRANSACTION_COMMIT_FAILED: &str = "TRANSACTION_COMMIT_FAILED";
-    pub const PROMOTION_FAILED: &str = "PROMOTION_FAILED";
     pub const USER_DETAILS_REQUIRED: &str = "USER_DETAILS_REQUIRED";
-    pub const TURF_UPDATE_FAILED: &str = "TURF_UPDATE_FAILED";
     pub const USER_NOT_FOUND: &str = "USER_NOT_FOUND";
     pub const TURF_NOT_FOUND: &str = "TURF_NOT_FOUND";
     pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const MANAGER_ALREADY_ASSIGNED: &str = "MANAGER_ALREADY_ASSIGNED";
     pub const GAME_NOT_FOUND: &str = "GAME_NOT_FOUND";
     pub const GAME_ACCESS_DENIED: &str = "GAME_ACCESS_DENIED";
+    pub const SETTINGS_NOT_FOUND: &str = "SETTINGS_NOT_FOUND";
+    pub const SETTINGS_ACCESS_DENIED: &str = "SETTINGS_ACCESS_DENIED";
+
+    // Slot specific
+    pub const SLOT_NOT_FOUND: &str = "SLOT_NOT_FOUND";
+    pub const SLOT_EXCEEDS_BOUNDARY: &str = "SLOT_EXCEEDS_BOUNDARY";
+    pub const SLOT_NOT_DELETABLE: &str = "SLOT_NOT_DELETABLE";
+    pub const SLOT_INVALID_STATUS: &str = "SLOT_INVALID_STATUS";
+    pub const SLOT_OVERLAP: &str = "SLOT_OVERLAP";
+    pub const BOTH_CONTACT_NAME_AND_PHONE_REQUIRED: &str = "BOTH_CONTACT_NAME_AND_PHONE_REQUIRED";
+    pub const BAD_REQUEST: &str = "BAD_REQUEST";
+    pub const GAME_WINDOW_CONFLICT: &str = "GAME_WINDOW_CONFLICT";
+    pub const GAME_HAS_ACTIVE_BOOKINGS: &str = "GAME_HAS_ACTIVE_BOOKINGS"; // narrowing the game window would orphan active slots
+
+    // Booking specific
+    pub const SLOT_UNAVAILABLE: &str = "SLOT_UNAVAILABLE"; // slot is Pending or Booked — cannot be booked
+    pub const TOO_MANY_PENDING_BOOKINGS: &str = "TOO_MANY_PENDING_BOOKINGS"; // user already holds 2 pending slots
+    pub const BOOKING_NOT_FOUND: &str = "BOOKING_NOT_FOUND";
+    pub const ALREADY_SETTLED: &str = "ALREADY_SETTLED"; // booking is not Partially_Paid — cannot settle
+    pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
 }
 
 // In any error case, we will create an AppError object. As AppError has Intoresponse implemnted on it, that object will be transformed into a response by axum

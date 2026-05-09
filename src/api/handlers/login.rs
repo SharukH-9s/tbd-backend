@@ -28,11 +28,7 @@ pub async fn login_handler(
     let cookie = Cookie::build(("refresh_token", refresh_token))
         .path("/")
         .http_only(true)
-        .same_site(if is_production {
-            SameSite::None
-        } else {
-            SameSite::Lax
-        })
+        .same_site(SameSite::None) // Always use None for cross-origin/cross-port requests
         .secure(is_production) // Must be true for SameSite::None (Production/HTTPS), false for HTTP (Local Dev)
         .max_age(time::Duration::days(7))
         .build();

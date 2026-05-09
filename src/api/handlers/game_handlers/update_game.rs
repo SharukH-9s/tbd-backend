@@ -18,7 +18,8 @@ pub async fn update_game_handler(
         claim.sub,
         claim.role,
         payload.name,
-        payload.price_per_hour,
+        payload.game_start_time,
+        payload.game_end_time,
     )
     .await?;
 

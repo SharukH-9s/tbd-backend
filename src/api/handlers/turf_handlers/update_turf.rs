@@ -6,6 +6,13 @@ use crate::domain::models::turfs::UpdateTurfRequest;
 use crate::services::turf_service::TurfService;
 use axum::{Json, extract::Path, extract::State, http::StatusCode, response::IntoResponse};
 
+/* pub struct UpdateTurfRequest {
+    pub name: Option<String>,
+    pub location: Option<String>,
+    pub description: Option<String>,
+    pub manager_id: Option<i32>, // Admin can use this to re-assign!
+} */
+
 pub async fn update_turf_handler(
     State(database): State<SharedState>,
     claim: Claims,

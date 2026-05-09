@@ -4,3 +4,7 @@ pub mod login;
 pub mod logout;
 pub mod refresh_token;
 pub mod register;
+pub mod game_settings_handlers;
+pub mod slot_handlers;
+pub mod booking_handlers;
+pub mod user_handlers;

@@ -11,6 +11,11 @@ pub struct Turf {
     pub description: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+
+    // Joined from users table (not stored in turfs)
+    pub manager_name: Option<String>,
+    pub manager_email: Option<String>,
+    pub manager_phone: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

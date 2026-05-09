@@ -39,10 +39,14 @@ async fn main() {
     // Professional Bootstrap: Ensure the root Administrator exists on startup
     api::utils::seed::ensure_admin_exists(&shared_state).await;
 
+    // Background worker: reset expired Pending slots and delete orphaned Unpaid bookings.
+    // Runs every 60 seconds concurrently without blocking the server.
+    tokio::spawn(api::utils::cleanup::run_cleanup_worker(shared_state.clone()));
+
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
         .allow_origin([
-            "https://turf-bd-frontend.vercel.app" // Vercel deployment // last change by punno
+            "https://turf-bd-frontend.vercel.app"
                 .parse::<HeaderValue>()
                 .unwrap(),
             "http://localhost:5500".parse::<HeaderValue>().unwrap(),
@@ -51,11 +55,14 @@ async fn main() {
             "http://127.0.0.1:5501".parse::<HeaderValue>().unwrap(),
             "http://localhost:6751".parse::<HeaderValue>().unwrap(),
             "http://127.0.0.1:6751".parse::<HeaderValue>().unwrap(),
+            "http://localhost:5173".parse::<HeaderValue>().unwrap(), // Vite local port
+            "http://127.0.0.1:5173".parse::<HeaderValue>().unwrap(), // Vite local port
         ])
         .allow_methods([
             Method::GET,
             Method::POST,
             Method::PUT,
+            Method::PATCH,
             Method::DELETE,
             Method::OPTIONS,
         ])
@@ -98,6 +105,72 @@ async fn main() {
             )
             .put(api::handlers::game_handlers::update_game::update_game_handler)
             .delete(api::handlers::game_handlers::delete_game::delete_game_handler),
+        )
+        .route(
+            "/games/:id/settings",
+            axum::routing::post(
+                api::handlers::game_settings_handlers::create_settings::create_settings_handler,
+            )
+            .get(api::handlers::game_settings_handlers::get_settings::get_settings_handler),
+        )
+        .route(
+            "/settings/:id",
+            axum::routing::put(
+                api::handlers::game_settings_handlers::update_settings::update_settings_handler,
+            )
+            .delete(
+                api::handlers::game_settings_handlers::delete_settings::delete_settings_handler,
+            ),
+        )
+        .route(
+            "/games/:id/slots",
+            axum::routing::post(api::handlers::slot_handlers::create_slot::create_slot_handler)
+                .get(api::handlers::slot_handlers::get_slots::get_slots_handler),
+        )
+        .route(
+            "/games/:id/slots/custom",
+            axum::routing::post(api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler),
+        )
+        .route(
+            "/games/:id/bookings",
+            axum::routing::get(api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler),
+        )
+        .route(
+            "/slots/:id",
+            axum::routing::delete(api::handlers::slot_handlers::delete_slot::delete_slot_handler),
+        )
+        .route(
+            "/slots/:id/book",
+            axum::routing::post(api::handlers::booking_handlers::initiate_booking::initiate_booking_handler),
+        )
+        .route(
+            "/slots/:id/pay/advance",
+            axum::routing::post(api::handlers::booking_handlers::pay_advance::pay_advance_handler),
+        )
+        .route(
+            "/slots/:id/pay/full",
+            axum::routing::post(api::handlers::booking_handlers::pay_full::pay_full_handler),
+        )
+        .route(
+            "/bookings/:id",
+            axum::routing::delete(api::handlers::booking_handlers::cancel_booking::cancel_booking_handler),
+        )
+        .route(
+            "/bookings/:id/payment",
+            axum::routing::patch(api::handlers::booking_handlers::update_payment::update_payment_handler),
+        )
+        .route(
+            "/users/:id",
+            axum::routing::get(api::handlers::user_handlers::get_profile::get_profile_handler)
+                .put(api::handlers::user_handlers::update_profile::update_profile_handler),
+        )
+        .route(
+            "/users/:id/bookings",
+            axum::routing::get(api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler),
+        )
+        .route(
+            "/users/:id/turfs",
+            axum::routing::get(api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler),
         )
         // This serves everything in the 'frontend' folder to the internet
         // If a user goes to your URL, it will look for 'index.html' inside that folder

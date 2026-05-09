@@ -30,12 +30,8 @@ pub async fn refresh_handler(
     let new_cookie = Cookie::build(("refresh_token", new_refresh_token))
         .path("/")
         .http_only(true)
-        .same_site(if is_production {
-            axum_extra::extract::cookie::SameSite::None
-        } else {
-            axum_extra::extract::cookie::SameSite::Lax
-        })
-        .secure(is_production)
+        .same_site(axum_extra::extract::cookie::SameSite::None) // Always use None for cross-origin/cross-port requests
+        .secure(is_production) // Must be true for SameSite::None (Production/HTTPS), false for HTTP (Local Dev)
         .max_age(time::Duration::days(7))
         .build();
 

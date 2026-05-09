@@ -10,23 +10,35 @@ impl UserRepository {
         database: &SharedState,
         email: &str,
     ) -> Result<Option<User>, AppError> {
-        sqlx::query_as::<_, User>(
-            "SELECT id, username, email, password_hash, phone, role, location, created_at, updated_at
-             FROM users WHERE email = $1"
-        )
-        .bind(email)
-        .fetch_optional(&database.db) // Result<Option<User>, sqlx::Error>
-        .await
-        .map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "A database error occurred while fetching user by email",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })
+        let mut conn = database.db.acquire().await.map_err(|e| {
+            eprintln!("Failed to acquire connection: {}", e);
+            AppError {
+                code: error_codes::DATABASE_ERROR,
+                message: "Internal server error",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        })?;
+        Self::find_by_email_tx(&mut *conn, email).await
+    }
+
+    pub async fn find_by_id(
+        database: &SharedState,
+        id: i32,
+    ) -> Result<Option<User>, AppError> {
+        let mut conn = database.db.acquire().await.map_err(|e| {
+            eprintln!("Failed to acquire connection: {}", e);
+            AppError {
+                code: error_codes::DATABASE_ERROR,
+                message: "Internal server error",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        })?;
+        Self::find_by_id_tx(&mut *conn, id).await
     }
 
     pub async fn find_by_email_tx(
         executor: &mut sqlx::PgConnection,
-        email: &str,
+        email: &str, // deref coercion
     ) -> Result<Option<User>, AppError> {
         sqlx::query_as::<_, User>(
             "SELECT id, username, email, password_hash, phone, role, location, created_at, updated_at
@@ -64,46 +76,15 @@ impl UserRepository {
         database: &SharedState,
         user_data: (String, String, String, String, Role),
     ) -> Result<User, AppError> {
-        let (username, email, password_hash, phone, role) = user_data;
-
-        sqlx::query_as::<_, User>(
-            "INSERT INTO users (username, email, password_hash, phone, role)
-             VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, username, email, password_hash, phone, role, location, created_at, updated_at"
-        )
-        .bind(&username)
-        .bind(&email)
-        .bind(&password_hash)
-        .bind(&phone)
-        .bind(&role)
-        .fetch_one(&database.db)// Result<User, sqlx::Error>
-        .await
-        .map_err(|e| {
-            if let sqlx::Error::Database(db_err) = &e {
-                if db_err.code().as_deref() == Some("23505") {
-                    let msg = db_err.message();
-                    if msg.contains("users_username_key") {
-                        return AppError {
-                            code: error_codes::USERNAME_EXISTS,
-                            message: "Username already exists",
-                            status: StatusCode::BAD_REQUEST,
-                        };
-                    }
-                    if msg.contains("users_email_key") {
-                        return AppError {
-                            code: error_codes::EMAIL_EXISTS,
-                            message: "An account with this email already exists",
-                            status: StatusCode::BAD_REQUEST,
-                        };
-                    }
-                }
-            }
+        let mut conn = database.db.acquire().await.map_err(|e| {
+            eprintln!("Failed to acquire connection: {}", e);
             AppError {
                 code: error_codes::DATABASE_ERROR,
-                message: "A database error occurred during registration",
+                message: "Internal server error",
                 status: StatusCode::INTERNAL_SERVER_ERROR,
             }
-        }) // returns Result<User, AppError>
+        })?;
+        Self::insert_user_tx(&mut *conn, user_data).await
     }
 
     pub async fn insert_user_tx(
@@ -223,7 +204,7 @@ impl UserRepository {
     // Delete the old refresh token and return the user_id and role it belonged to.
     pub async fn swap_refresh_token(
         database: &SharedState,
-        old_token: &str,
+        old_token: &str, // deref coercion
     ) -> Result<(i32, Role), AppError> {
         let result = sqlx::query_as::<_, (i32, Role)>(
             "WITH deleted AS (
@@ -259,7 +240,7 @@ impl UserRepository {
     // Delete the refresh token on logout
     pub async fn remove_refresh_token(
         database: &SharedState,
-        token: &str,
+        token: &str, // deref coercion
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
         sqlx::query("DELETE FROM refresh_tokens WHERE token = $1")
             .bind(token)
@@ -273,5 +254,48 @@ impl UserRepository {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
                 }
             })
+    }
+
+    pub async fn update_profile_tx(
+        executor: &mut sqlx::PgConnection,
+        user_id: i32,
+        username: &str,
+        password_hash: &str,
+        phone: &str,
+        location: Option<&str>,
+    ) -> Result<User, AppError> {
+        sqlx::query_as::<_, User>(
+            "UPDATE users
+             SET username = $1, password_hash = $2, phone = $3, location = $4, updated_at = NOW()
+             WHERE id = $5
+             RETURNING id, username, email, password_hash, phone, role, location, created_at, updated_at"
+        )
+        .bind(username)
+        .bind(password_hash)
+        .bind(phone)
+        .bind(location)
+        .bind(user_id)
+        .fetch_one(executor)
+        .await
+        .map_err(|e| {
+            if let sqlx::Error::Database(db_err) = &e {
+                if db_err.code().as_deref() == Some("23505") {
+                    let msg = db_err.message();
+                    if msg.contains("users_username_key") {
+                        return AppError {
+                            code: error_codes::USERNAME_EXISTS,
+                            message: "Username already exists",
+                            status: StatusCode::BAD_REQUEST,
+                        };
+                    }
+                }
+            }
+            eprintln!("Database error in update_profile_tx: {}", e);
+            AppError {
+                code: error_codes::DATABASE_ERROR,
+                message: "A database error occurred while updating the profile",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        })
     }
 }

@@ -8,8 +8,25 @@ use axum::http::StatusCode;
 pub struct TurfService;
 
 impl TurfService {
-    pub async fn get_all_turfs(state: &SharedState) -> Result<Vec<Turf>, AppError> {
-        TurfRepository::find_all(state).await
+    pub async fn get_all_turfs(
+        state: &SharedState,
+        user_id: i32,
+        user_role: crate::domain::models::users::Role,
+    ) -> Result<Vec<Turf>, AppError> {
+        match user_role {
+            crate::domain::models::users::Role::Admin => {
+                // Admins see all turfs
+                TurfRepository::find_all(state).await
+            }
+            crate::domain::models::users::Role::Manager => {
+                // Managers see only their own turfs
+                TurfRepository::find_by_manager_id(state, user_id).await
+            }
+            crate::domain::models::users::Role::User => {
+                // Normal users see all turfs
+                TurfRepository::find_all(state).await
+            }
+        }
     }
 
     pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
@@ -27,7 +44,6 @@ impl TurfService {
     pub async fn create_turf(
         state: &SharedState,
         creator_id: i32,
-        creator_role: crate::domain::models::users::Role,
         name: &str,
         location: &str,
         description: &str,
@@ -113,23 +129,7 @@ impl TurfService {
             }
         }
 
-        // 2. CHECK FOR CREATOR (If no email was provided, we still check the creator)
-        if manager_email.is_none() {
-            // Only enforce the rule if the creator (who is now the manager) is NOT an Admin.
-            if !matches!(creator_role, crate::domain::models::users::Role::Admin) {
-                if let Some(_) =
-                    TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
-                {
-                    return Err(AppError {
-                        code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                        message: "You are already managing another turf. One manager per turf allowed.",
-                        status: StatusCode::CONFLICT,
-                    });
-                }
-            }
-        }
-
-        // 3. Create the turf
+        // 2. Create the turf
         let newly_created_turf =
             TurfRepository::insert_tx(&mut *tx, final_manager_id, name, location, description)
                 .await?;
