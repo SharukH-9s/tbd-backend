@@ -53,7 +53,8 @@ impl SlotRepository {
         business_day_end: DateTime<Utc>,
     ) -> Result<Vec<Slot>, AppError> {
         query_as::<_, Slot>(
-            "SELECT * FROM slots
+            "SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at
+             FROM slots
              WHERE game_id = $1
                AND start_time >= $2
                AND start_time < $3
@@ -87,7 +88,8 @@ impl SlotRepository {
         end_time: DateTime<Utc>,
     ) -> Result<Vec<Slot>, AppError> {
         query_as::<_, Slot>(
-            "SELECT * FROM slots
+            "SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at
+             FROM slots
              WHERE game_id = $1
                AND start_time < $2
                AND end_time > $3",
@@ -123,7 +125,7 @@ impl SlotRepository {
         query_as::<_, Slot>(
             "INSERT INTO slots (game_id, settings_id, label, start_time, end_time, final_price, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING *",
+             RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
         )
         .bind(game_id)
         .bind(settings_id)
@@ -150,7 +152,7 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<Option<Slot>, AppError> {
-        query_as::<_, Slot>("SELECT * FROM slots WHERE id = $1")
+        query_as::<_, Slot>("SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at FROM slots WHERE id = $1")
             .bind(slot_id)
             .fetch_optional(executor)
             .await
@@ -255,7 +257,7 @@ impl SlotRepository {
         slot_id: i32,
     ) -> Result<Slot, AppError> {
         query_as::<_, Slot>(
-            "UPDATE slots SET status = 'Available', pending_until = NULL WHERE id = $1 RETURNING *",
+            "UPDATE slots SET status = 'Available', pending_until = NULL WHERE id = $1 RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
         )
         .bind(slot_id)
         .fetch_one(executor)
@@ -282,7 +284,7 @@ impl SlotRepository {
              SET status = 'Pending',
                  pending_until = NOW() + INTERVAL '15 minutes'
              WHERE id = $1 AND status = 'Available'
-             RETURNING *",
+             RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
         )
         .bind(slot_id)
         .fetch_optional(executor)
@@ -304,7 +306,7 @@ impl SlotRepository {
         slot_id: i32,
     ) -> Result<Slot, AppError> {
         query_as::<_, Slot>(
-            "UPDATE slots SET status = 'Booked', pending_until = NULL WHERE id = $1 RETURNING *",
+            "UPDATE slots SET status = 'Booked', pending_until = NULL WHERE id = $1 RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
         )
         .bind(slot_id)
         .fetch_one(executor)
