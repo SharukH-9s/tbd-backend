@@ -25,7 +25,8 @@ async fn main() {
     // max_connections(5) means at most 5 simultaneous DB connections will be open.
     // If all 5 are busy, the 6th request waits until one is free.
     let db = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(10) // Bumped to 10 for testing
+        .acquire_timeout(std::time::Duration::from_secs(3)) // Fail fast if pool is saturated
         .connect(&database_url)
         .await
         .expect("Failed to connect to the database. Check DATABASE_URL in .env");
@@ -41,15 +42,15 @@ async fn main() {
 
     // Background worker: reset expired Pending slots and delete orphaned Unpaid bookings.
     // Runs every 60 seconds concurrently without blocking the server.
-    tokio::spawn(api::utils::cleanup::run_cleanup_worker(shared_state.clone()));
+    tokio::spawn(api::utils::cleanup::run_cleanup_worker(
+        shared_state.clone(),
+    ));
 
     // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
-        .allow_origin([
-                "https://unique-kelpie-7632c3.netlify.app"
-                .parse::<HeaderValue>()
-                .unwrap(),
-        ])
+        .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
+            .parse::<HeaderValue>()
+            .unwrap()])
         .allow_methods([
             Method::GET,
             Method::POST,
@@ -122,11 +123,15 @@ async fn main() {
         )
         .route(
             "/games/:id/slots/custom",
-            axum::routing::post(api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler),
+            axum::routing::post(
+                api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler,
+            ),
         )
         .route(
             "/games/:id/bookings",
-            axum::routing::get(api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler),
+            axum::routing::get(
+                api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler,
+            ),
         )
         .route(
             "/slots/:id",
@@ -134,7 +139,9 @@ async fn main() {
         )
         .route(
             "/slots/:id/book",
-            axum::routing::post(api::handlers::booking_handlers::initiate_booking::initiate_booking_handler),
+            axum::routing::post(
+                api::handlers::booking_handlers::initiate_booking::initiate_booking_handler,
+            ),
         )
         .route(
             "/slots/:id/pay/advance",
@@ -146,11 +153,15 @@ async fn main() {
         )
         .route(
             "/bookings/:id",
-            axum::routing::delete(api::handlers::booking_handlers::cancel_booking::cancel_booking_handler),
+            axum::routing::delete(
+                api::handlers::booking_handlers::cancel_booking::cancel_booking_handler,
+            ),
         )
         .route(
             "/bookings/:id/payment",
-            axum::routing::patch(api::handlers::booking_handlers::update_payment::update_payment_handler),
+            axum::routing::patch(
+                api::handlers::booking_handlers::update_payment::update_payment_handler,
+            ),
         )
         .route(
             "/users/:id",
@@ -159,11 +170,15 @@ async fn main() {
         )
         .route(
             "/users/:id/bookings",
-            axum::routing::get(api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler),
+            axum::routing::get(
+                api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler,
+            ),
         )
         .route(
             "/users/:id/turfs",
-            axum::routing::get(api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler),
+            axum::routing::get(
+                api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
+            ),
         )
         // This serves everything in the 'frontend' folder to the internet
         // If a user goes to your URL, it will look for 'index.html' inside that folder
