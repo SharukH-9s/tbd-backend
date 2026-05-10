@@ -319,23 +319,26 @@ impl SlotService {
 
     /// Creates a custom slot at explicit start_time and end_time (allows filling gaps after deletions).
     ///
+    /// Accepts local Dhaka times + a business date, exactly like `create_slot`.
+    /// The backend resolves UTC timestamps using `chrono_tz::Asia::Dhaka`.
+    ///
     /// Steps:
     ///   1. Verify game exists → fetch game_start_time / game_end_time
-    ///   2. Verify settings template exists → fetch base_price
-    ///   3. Security check (must be the game's turf manager or Admin)
-    ///   4. Compute business day window (handles midnight rollover)
-    ///   5. Validate: start_time & end_time must be within business hours
-    ///   6. Check for overlaps with existing slots
-    ///   7. Insert slot
-    ///   8. If initial_status == "Booked": validate contact fields, insert booking record
-    ///   9. Commit transaction
+    ///   2. Security check (must be the game's turf manager or Admin)
+    ///   3. Resolve UTC start/end from slot_date + local times (midnight-crossing safe)
+    ///   4. Validate: times must be within business hours
+    ///   5. Check for overlaps with existing slots
+    ///   6. Insert slot
+    ///   7. If initial_status == "Booked": validate contact fields, insert booking record
+    ///   8. Commit transaction
     pub async fn create_custom_slot(
         state: &SharedState,
         game_id: i32,
         label: Option<String>,
         price: BigDecimal,
-        start_time: DateTime<Utc>,
-        end_time: DateTime<Utc>,
+        slot_date: NaiveDate,
+        start_time_local: chrono::NaiveTime,
+        end_time_local: chrono::NaiveTime,
         initial_status: Option<String>,
         contact_name: Option<String>,
         contact_phone: Option<String>,
@@ -360,8 +363,7 @@ impl SlotService {
             }
         };
 
-
-        // ── 3. Security check ────────────────────────────────────────────────
+        // ── 2. Security check ────────────────────────────────────────────────
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
             None => {
@@ -384,35 +386,82 @@ impl SlotService {
             });
         }
 
-        // ── 5. Validate boundaries ───────────────────────────────────────────
-        // Convert times to Dhaka to check if they fall within business hours
-        let start_time_dhaka = start_time.with_timezone(&Dhaka);
-        let end_time_dhaka = end_time.with_timezone(&Dhaka);
+        // ── 3. Resolve UTC timestamps from local Dhaka times ─────────────────
+        // Same logic as create_slot / get_slots_for_game_on_date:
+        //   - start_time always uses slot_date
+        //   - If the game crosses midnight AND start_time is in the after-midnight
+        //     tail (before game_end_time), it belongs to the NEXT calendar day.
+        //   - end_time date is resolved the same way.
+        let crosses_midnight = game.game_end_time < game.game_start_time;
 
-        let start_local_time = start_time_dhaka.time();
-        let end_local_time = end_time_dhaka.time();
-
-        // Check if times are within business hours (accounting for midnight crossing)
-        let start_within_hours = if game.game_end_time < game.game_start_time {
-            // Game crosses midnight (e.g., 8 AM to 2 AM)
-            start_local_time >= game.game_start_time || start_local_time < game.game_end_time
+        // Determine the correct calendar date for the start time
+        let start_date = if crosses_midnight && start_time_local < game.game_end_time {
+            // Start is in the after-midnight tail → belongs to slot_date + 1
+            slot_date.succ_opt().ok_or_else(|| AppError {
+                code: error_codes::DATABASE_ERROR,
+                message: "Failed to compute next calendar day for start time",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            })?
         } else {
-            // Game doesn't cross midnight
-            start_local_time >= game.game_start_time && start_local_time < game.game_end_time
+            slot_date
         };
 
-        let end_within_hours = if game.game_end_time < game.game_start_time {
-            // Game crosses midnight
-            end_local_time >= game.game_start_time || end_local_time < game.game_end_time
+        // Determine the correct calendar date for the end time
+        let end_date = if crosses_midnight && end_time_local <= game.game_end_time {
+            // End is in the after-midnight tail → belongs to slot_date + 1
+            slot_date.succ_opt().ok_or_else(|| AppError {
+                code: error_codes::DATABASE_ERROR,
+                message: "Failed to compute next calendar day for end time",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            })?
         } else {
-            // Game doesn't cross midnight
-            end_local_time >= game.game_start_time && end_local_time < game.game_end_time
+            slot_date
+        };
+
+        let start_time: DateTime<Utc> = {
+            let naive = NaiveDateTime::new(start_date, start_time_local);
+            Dhaka
+                .from_local_datetime(&naive)
+                .single()
+                .ok_or_else(|| AppError {
+                    code: error_codes::DATABASE_ERROR,
+                    message: "Failed to resolve start time to UTC",
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                })?
+                .with_timezone(&Utc)
+        };
+
+        let end_time: DateTime<Utc> = {
+            let naive = NaiveDateTime::new(end_date, end_time_local);
+            Dhaka
+                .from_local_datetime(&naive)
+                .single()
+                .ok_or_else(|| AppError {
+                    code: error_codes::DATABASE_ERROR,
+                    message: "Failed to resolve end time to UTC",
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                })?
+                .with_timezone(&Utc)
+        };
+
+        // ── 4. Validate boundaries ───────────────────────────────────────────
+        // Check if times are within business hours (accounting for midnight crossing)
+        let start_within_hours = if crosses_midnight {
+            start_time_local >= game.game_start_time || start_time_local < game.game_end_time
+        } else {
+            start_time_local >= game.game_start_time && start_time_local < game.game_end_time
+        };
+
+        let end_within_hours = if crosses_midnight {
+            end_time_local >= game.game_start_time || end_time_local <= game.game_end_time
+        } else {
+            end_time_local >= game.game_start_time && end_time_local <= game.game_end_time
         };
 
         if !start_within_hours {
             return Err(AppError {
                 code: error_codes::BAD_REQUEST,
-                message: "Start time is before the game's opening time",
+                message: "Start time is outside the game's operating hours",
                 status: StatusCode::BAD_REQUEST,
             });
         }
@@ -420,7 +469,7 @@ impl SlotService {
         if !end_within_hours {
             return Err(AppError {
                 code: error_codes::SLOT_EXCEEDS_BOUNDARY,
-                message: "End time exceeds the game's closing time",
+                message: "End time is outside the game's operating hours",
                 status: StatusCode::BAD_REQUEST,
             });
         }
@@ -433,7 +482,7 @@ impl SlotService {
             });
         }
 
-        // ── 7. Check for overlaps with existing slots ────────────────────────
+        // ── 5. Check for overlaps with existing slots ────────────────────────
         let conflicting_slots = SlotRepository::find_overlapping_slots_tx(
             &mut *tx,
             game_id,
@@ -450,7 +499,7 @@ impl SlotService {
             });
         }
 
-        // ── 8. Resolve status & offline booking validation ───────────────────
+        // ── 6. Resolve status & offline booking validation ───────────────────
         let status = initial_status.as_deref().unwrap_or("Available");
 
         let mut final_contact_name = String::new();
@@ -475,7 +524,7 @@ impl SlotService {
             });
         }
 
-        // ── 9. Insert the slot ───────────────────────────────────────────────
+        // ── 7. Insert the slot ───────────────────────────────────────────────
         let slot = SlotRepository::insert_tx(
             &mut *tx,
             game_id,
@@ -488,7 +537,7 @@ impl SlotService {
         )
         .await?;
 
-        // ── 9b. If offline booking — insert the booking record atomically ─────
+        // ── 7b. If offline booking — insert the booking record atomically ─────
         if status == "Booked" {
             BookingRepository::insert_offline_tx(
                 &mut *tx,
@@ -499,7 +548,7 @@ impl SlotService {
             .await?;
         }
 
-        // ── 10. Commit ──────────────────────────────────────────────────────
+        // ── 8. Commit ──────────────────────────────────────────────────────
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
             message: "Failed to finalize custom slot creation",

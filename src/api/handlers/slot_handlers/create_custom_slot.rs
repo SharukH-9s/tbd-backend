@@ -23,6 +23,7 @@ pub async fn create_custom_slot_handler(
         game_id,
         payload.label,
         payload.price,
+        payload.slot_date,
         payload.start_time,
         payload.end_time,
         payload.initial_status,

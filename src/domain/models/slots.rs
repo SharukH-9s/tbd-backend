@@ -1,5 +1,5 @@
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -41,12 +41,14 @@ pub struct CreateSlotRequest {
 
 /// Used by the manager to create a fully-custom slot with explicit times, price, and label.
 /// Nothing is inherited from any settings template.
+/// Times are sent as local Dhaka times — the backend resolves UTC, just like normal slots.
 #[derive(Debug, Deserialize)]
 pub struct CreateCustomSlotRequest {
-    pub label: Option<String>, // optional display label
-    pub price: BigDecimal,     // explicit price, always required
-    pub start_time: chrono::DateTime<chrono::Utc>,
-    pub end_time: chrono::DateTime<chrono::Utc>,
+    pub label: Option<String>,           // optional display label
+    pub price: BigDecimal,               // explicit price, always required
+    pub slot_date: chrono::NaiveDate,    // the business day (same as normal slot flow)
+    pub start_time: NaiveTime,           // local Dhaka time (HH:MM)
+    pub end_time: NaiveTime,             // local Dhaka time (HH:MM)
     pub initial_status: Option<String>,
     pub contact_name: Option<String>,
     pub contact_phone: Option<String>,
