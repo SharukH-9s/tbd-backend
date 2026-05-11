@@ -68,6 +68,6 @@ export default function (data) {
     'is status 200': (r) => r.status === 200,
   });
 
-  // Short sleep to simulate real user behavior between clicks, but keep it low for high throughput
-  sleep(0.1); 
+  // Simulate real user behavior - wait 1 second between requests
+  sleep(1); 
 }
