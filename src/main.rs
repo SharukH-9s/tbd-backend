@@ -5,14 +5,21 @@ mod repositories;
 mod services;
 
 use crate::config::state::{AppState, SharedState};
-use axum::{Router, routing::post};
+use axum::{Json, Router, routing::{get, post}};
 use dotenvy::dotenv;
 use http::{HeaderValue, Method};
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
+use serde_json::json;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::key_extractor::SmartIpKeyExtractor;
+
+async fn ping() -> Json<serde_json::Value> {
+    Json(json!({ "status": "ok" }))
+}
 
 #[tokio::main]
 async fn main() {
@@ -68,7 +75,8 @@ async fn main() {
 
     // 1. Create the axum router
     let final_router = Router::new()
-        .route("/health", axum::routing::get(|| async { "OK" }))
+        .route("/health", get(|| async { "OK" }))
+        .route("/ping", get(ping))
         .route("/register", post(api::handlers::register::register))
         .route("/login", post(api::handlers::login::login_handler))
         .route(
@@ -184,6 +192,16 @@ async fn main() {
         // If a user goes to your URL, it will look for 'index.html' inside that folder
         .fallback_service(ServeDir::new("frontend"))
         .layer(cors) // Ensure CORS is applied by adding this layer
+        .layer(GovernorLayer {
+            config: Box::leak(Box::new(
+                GovernorConfigBuilder::default()
+                    .per_second(5)
+                    .burst_size(10)
+                    .key_extractor(SmartIpKeyExtractor)
+                    .finish()
+                    .unwrap(),
+            )),
+        })
         .with_state(shared_state); // State is applied to everything above
 
     // Railway will provide a PORT environment variable. If not found, use 6751 locally.
@@ -198,5 +216,5 @@ async fn main() {
     // You can go do other tasks in the meantime, just wake me up when the port is ready."
 
     // 3. Launch the web server
-    axum::serve(listener, final_router).await.unwrap();
+    axum::serve(listener, final_router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
 }
