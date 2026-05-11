@@ -14,8 +14,6 @@ use std::sync::Arc;
 use serde_json::json;
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
-use tower_governor::key_extractor::SmartIpKeyExtractor;
 
 async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
@@ -191,17 +189,7 @@ async fn main() {
         // This serves everything in the 'frontend' folder to the internet
         // If a user goes to your URL, it will look for 'index.html' inside that folder
         .fallback_service(ServeDir::new("frontend"))
-        .layer(cors) // Ensure CORS is applied by adding this layer
-        .layer(GovernorLayer {
-            config: Box::leak(Box::new(
-                GovernorConfigBuilder::default()
-                    .per_second(5)
-                    .burst_size(10)
-                    .key_extractor(SmartIpKeyExtractor)
-                    .finish()
-                    .unwrap(),
-            )),
-        })
+        .layer(cors)
         .with_state(shared_state); // State is applied to everything above
 
     // Railway will provide a PORT environment variable. If not found, use 6751 locally.
