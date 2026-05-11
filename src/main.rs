@@ -30,7 +30,7 @@ async fn main() {
     // max_connections(5) means at most 5 simultaneous DB connections will be open.
     // If all 5 are busy, the 6th request waits until one is free.
     let db = PgPoolOptions::new()
-        .max_connections(10) // Bumped to 10 for testing
+        .max_connections(50) // Increased for connection pool testing
         .acquire_timeout(std::time::Duration::from_secs(3)) // Fail fast if pool is saturated
         .connect(&database_url)
         .await
