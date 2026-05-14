@@ -324,7 +324,7 @@ impl SlotRepository {
     /// Resets expired Pending slots back to Available.
     /// Used by the cleanup worker.
     /// Note: The cleanup worker also deletes orphaned bookings associated with these slots,
-    /// so you don't need to handle that here.
+    /// so we don't need to handle that here.
     pub async fn reset_expired_pending_slots(db: &sqlx::PgPool) -> Result<u64, AppError> {
         sqlx::query(
             "UPDATE slots

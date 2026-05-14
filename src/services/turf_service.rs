@@ -51,9 +51,7 @@ impl TurfService {
         manager_password: Option<String>,
         manager_username: Option<String>,
     ) -> Result<Turf, AppError> {
-        // --- START TRANSACTION ---
         let mut tx = state.db.begin().await.map_err(|_e| AppError {
-            // state.db.begin() returns a sqlx::Transaction object
             code: error_codes::TRANSACTION_START_FAILED,
             message: "Failed to start database transaction",
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -61,12 +59,10 @@ impl TurfService {
 
         let mut final_manager_id = creator_id;
 
-        // 1. Linked Manager Logic
         if let Some(email) = &manager_email {
-            let existing_user = UserRepository::find_by_email_tx(&mut *tx, &email).await?; // Some(User) or None // *tx is a sqlx::PgConnection // &mut *tx is a mutable reference to that sqlx::PgConnection
+            let existing_user = UserRepository::find_by_email_tx(&mut *tx, &email).await?;
 
             if let Some(user) = existing_user {
-                // --- CONFLICT CHECK ---
                 if manager_password.is_some() || manager_username.is_some() {
                     return Err(AppError {
                         code: error_codes::EMAIL_EXISTS,
@@ -77,8 +73,6 @@ impl TurfService {
 
                 final_manager_id = user.id;
 
-                // --- ONE TURF PER MANAGER CHECK ---
-                // Only skip if the person being ASSIGNED is an Admin.
                 if !matches!(user.role, crate::domain::models::users::Role::Admin) {
                     if let Some(_) =
                         TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
@@ -91,7 +85,6 @@ impl TurfService {
                     }
                 }
 
-                // --- AUTO-PROMOTION LOGIC ---
                 if !matches!(user.role, crate::domain::models::users::Role::Manager)
                     && !matches!(user.role, crate::domain::models::users::Role::Admin)
                 {
@@ -99,7 +92,6 @@ impl TurfService {
                     println!("User {} got promoted to Manager", user.id);
                 }
             } else {
-                // CASE 2: New Partner
                 if let (Some(pass), Some(uname)) = (manager_password, manager_username) {
                     let hashed_password =
                         bcrypt::hash(pass, bcrypt::DEFAULT_COST).map_err(|_| AppError {
@@ -129,12 +121,10 @@ impl TurfService {
             }
         }
 
-        // 2. Create the turf
         let newly_created_turf =
             TurfRepository::insert_tx(&mut *tx, final_manager_id, name, location, description)
                 .await?;
 
-        // --- COMMIT TRANSACTION ---
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
             message: "Failed to finalize database changes",
@@ -146,22 +136,20 @@ impl TurfService {
 
     pub async fn update_turf(
         state: &SharedState,
-        turf_id: i32,                                    // turf_id to update
-        caller_id: i32,                                  // id of the user who is making the request
-        caller_role: crate::domain::models::users::Role, // role of the user who is making the request
+        turf_id: i32,
+        caller_id: i32,
+        caller_role: crate::domain::models::users::Role,
         name: Option<String>,
         location: Option<String>,
         description: Option<String>,
         requested_manager_id: Option<i32>,
     ) -> Result<Turf, AppError> {
-        // --- START TRANSACTION ---
         let mut tx = state.db.begin().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_START_FAILED,
             message: "Failed to start database transaction",
             status: StatusCode::INTERNAL_SERVER_ERROR,
         })?;
 
-        // 1. Fetch the existing turf to check ownership and existence
         let existing_turf = match TurfRepository::find_by_id_tx(&mut *tx, turf_id).await? {
             Some(t) => t,
             None => {
@@ -173,7 +161,6 @@ impl TurfService {
             }
         };
 
-        // 2. SECURITY CHECK (RBAC)
         let is_admin = matches!(caller_role, crate::domain::models::users::Role::Admin);
         let is_owner = existing_turf.manager_id == caller_id;
 
@@ -185,17 +172,12 @@ impl TurfService {
             });
         }
 
-        // 3. Determine the final manager_id
-        // Admins can re-assign the turf, Managers cannot change the owner.
         let final_manager_id = if is_admin {
-            // if admin is updating the turf without providing a new manager_id, keep the existing manager_id
             requested_manager_id.unwrap_or(existing_turf.manager_id)
         } else {
-            // if manager is updating the turf, they cannot change the owner
             existing_turf.manager_id
         };
 
-        // 4. Admin provided a new manager_id, so verify and auto-promote if needed
         if final_manager_id != existing_turf.manager_id {
             let user = match UserRepository::find_by_id_tx(&mut *tx, final_manager_id).await? {
                 Some(u) => u,
@@ -208,8 +190,6 @@ impl TurfService {
                 }
             };
 
-            // --- ONE TURF PER MANAGER CHECK ---
-            // Admins can manage multiple turfs.
             if !matches!(user.role, crate::domain::models::users::Role::Admin) {
                 if let Some(_) =
                     TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
@@ -222,7 +202,6 @@ impl TurfService {
                 }
             }
 
-            // 4.1 Auto-Promote the manager
             if !matches!(user.role, crate::domain::models::users::Role::Manager)
                 && !matches!(user.role, crate::domain::models::users::Role::Admin)
             {
@@ -231,12 +210,10 @@ impl TurfService {
             }
         }
 
-        // 5. Merge fields
         let final_name = name.unwrap_or(existing_turf.name);
         let final_location = location.unwrap_or(existing_turf.location);
         let final_description = description.unwrap_or(existing_turf.description);
 
-        // 6. Perform the actual Turf update
         let updated_turf = TurfRepository::update_tx(
             &mut *tx,
             turf_id,
@@ -247,7 +224,6 @@ impl TurfService {
         )
         .await?;
 
-        // 7. Demote OLD manager if they have no other turfs left
         let old_manager_id = existing_turf.manager_id;
         if final_manager_id != old_manager_id {
             if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, old_manager_id).await? {
@@ -268,7 +244,6 @@ impl TurfService {
             }
         }
 
-        // --- COMMIT TRANSACTION ---
         tx.commit().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_COMMIT_FAILED,
             message: "Failed to finalize database changes for turf update",
@@ -292,14 +267,12 @@ impl TurfService {
             });
         }
 
-        // Start transaction for atomic delete
         let mut tx = state.db.begin().await.map_err(|_| AppError {
             code: error_codes::TRANSACTION_START_FAILED,
             message: "Failed to start database transaction",
             status: StatusCode::INTERNAL_SERVER_ERROR,
         })?;
 
-        // 1. Verify existence inside transaction
         let existing_turf = match TurfRepository::find_by_id_tx(&mut *tx, id).await? {
             Some(t) => t,
             None => {
@@ -313,12 +286,8 @@ impl TurfService {
 
         let manager_id = existing_turf.manager_id;
 
-        // 2. Perform delete
         TurfRepository::delete_tx(&mut *tx, id).await?;
 
-        // 3. Demote manager if they have no other turfs
-        // Since we have a UNIQUE constraint on manager_id in the turfs table,
-        // they definitely have 0 turfs now. But let's check properly for future flexibility.
         if let None = TurfRepository::find_by_manager_id_tx(&mut *tx, manager_id).await? {
             // Get user to check current role
             if let Some(user) = UserRepository::find_by_id_tx(&mut *tx, manager_id).await? {

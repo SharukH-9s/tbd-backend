@@ -38,14 +38,14 @@ impl UserRepository {
 
     pub async fn find_by_email_tx(
         executor: &mut sqlx::PgConnection,
-        email: &str, // deref coercion
+        email: &str,
     ) -> Result<Option<User>, AppError> {
         sqlx::query_as::<_, User>(
             "SELECT id, username, email, password_hash, phone, role, location, created_at, updated_at
              FROM users WHERE email = $1"
         )
         .bind(email)
-        .fetch_optional(executor) // Result<Option<User>, sqlx::Error>
+        .fetch_optional(executor)
         .await
         .map_err(|_| AppError {
             code: error_codes::DATABASE_ERROR,
@@ -63,7 +63,7 @@ impl UserRepository {
              FROM users WHERE id = $1"
         )
         .bind(id)
-        .fetch_optional(executor) // Result<Option<User>, sqlx::Error>
+        .fetch_optional(executor)
         .await
         .map_err(|_| AppError {
             code: error_codes::DATABASE_ERROR,
@@ -103,7 +103,7 @@ impl UserRepository {
         .bind(&password_hash)
         .bind(&phone)
         .bind(&role)
-        .fetch_one(executor) // Result<User, sqlx::Error>
+        .fetch_one(executor)
         .await
         .map_err(|e| {
             if let sqlx::Error::Database(db_err) = &e {
@@ -148,7 +148,7 @@ impl UserRepository {
         sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
             .bind(role)
             .bind(user_id)
-            .execute(executor) // Result<u64, sqlx::Error>
+            .execute(executor)
             .await
             .map_err(|e| {
                 eprintln!("Database error in set_role_tx: {}", e);
@@ -189,7 +189,7 @@ impl UserRepository {
         sqlx::query("INSERT INTO refresh_tokens (token, user_id) VALUES ($1, $2)")
             .bind(&token)
             .bind(user_id)
-            .execute(&database.db) // Result<u64, sqlx::Error>
+            .execute(&database.db)
             .await
             .map_err(|e| {
                 eprintln!("Database error in store_refresh_token: {}", e);
@@ -204,7 +204,7 @@ impl UserRepository {
     // Delete the old refresh token and return the user_id and role it belonged to.
     pub async fn swap_refresh_token(
         database: &SharedState,
-        old_token: &str, // deref coercion
+        old_token: &str,
     ) -> Result<(i32, Role), AppError> {
         let result = sqlx::query_as::<_, (i32, Role)>(
             "WITH deleted AS (
@@ -214,7 +214,7 @@ impl UserRepository {
              INNER JOIN deleted d ON u.id = d.user_id",
         )
         .bind(old_token)
-        .fetch_optional(&database.db) // fetch_optional returns: Result<Option<(i32, Role)>, sqlx::Error>
+        .fetch_optional(&database.db)
         .await
         .map_err(|e| {
             eprintln!("Database error in swap_refresh_token: {}", e);

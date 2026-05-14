@@ -2,44 +2,47 @@ import http from 'k6/http';
 import { check, sleep } from 'k6';
 
 export const options = {
-  // Test 1: The "Slow Query" Pile-up
-  // Goal: Saturate the database connection pool with heavy writes
+  // Heavy write test: stress the database connection pool with repeated registrations.
   stages: [
-    { duration: '15s', target: 100 }, // Ramp up quickly to 100 concurrent writers
-    { duration: '30s', target: 300 }, // Push to 300 users to saturate the pool
-    { duration: '15s', target: 0 },   // Ramp down
+    { duration: '15s', target: 100 }, // Ramp up quickly to 100 concurrent writers.
+    { duration: '30s', target: 300 }, // Push harder to saturate the pool.
+    { duration: '15s', target: 0 },   // Ramp back down to zero users.
   ],
   thresholds: {
-    http_req_duration: ['p(95)<2000'], // We expect writes to take longer, but flag if p95 > 2s
+    // Allow slower writes, but flag the run if the 95th percentile exceeds 2 seconds.
+    http_req_duration: ['p(95)<2000'],
   },
 };
 
 export default function () {
-  const url = 'http://localhost:6751/register';
+  // Use the deployed backend unless a local URL is supplied through the environment.
+  const url = 'https://tbd-backend-gx8i.onrender.com/register';
   
-  // Generate random data for registration to ensure unique DB inserts
+  // Generate random data so each registration attempt is unique.
   const randomStr = Math.random().toString(36).substring(7);
   const payload = JSON.stringify({
     username: `k6user_${randomStr}`,
     email: `k6user_${randomStr}@example.com`,
-    password: "Password123!",
+    password: 'Password123!',
     phone: `+1234567${Math.floor(Math.random() * 1000)}`
   });
 
+  // Tell the backend that the request body is JSON.
   const params = {
     headers: {
       'Content-Type': 'application/json',
     },
   };
 
+  // Send the registration request and capture the response.
   const res = http.post(url, payload, params);
 
-  // Status 200/201 means success, 503 means our new acquire_timeout kicked in!
+  // Treat successful registration as a pass; 503 indicates the DB pool timed out.
   check(res, {
     'is status success': (r) => r.status === 200 || r.status === 201,
     'is status 503 (timeout)': (r) => r.status === 503,
   });
 
-  // Small sleep to control the loop rate
+  // Add a small pause to avoid a zero-think-time flood of writes.
   sleep(1);
 }

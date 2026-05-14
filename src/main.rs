@@ -51,7 +51,6 @@ async fn main() {
         shared_state.clone(),
     ));
 
-    // Configure CORS so your friend's frontend can talk to your backend
     let cors = CorsLayer::new()
         .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
             .parse::<HeaderValue>()
@@ -186,23 +185,17 @@ async fn main() {
                 api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
             ),
         )
-        // This serves everything in the 'frontend' folder to the internet
-        // If a user goes to your URL, it will look for 'index.html' inside that folder
         .fallback_service(ServeDir::new("frontend"))
         .layer(cors)
-        .with_state(shared_state); // State is applied to everything above
+        .with_state(shared_state);
 
-    // Railway will provide a PORT environment variable. If not found, use 6751 locally.
     let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string());
     let address = format!("0.0.0.0:{}", port);
     println!("🚀 Server starting on {}", address);
 
-    // Making the bridge between our code and the physical network card
-    let listener = tokio::net::TcpListener::bind(&address) //It goes to the Operating System and says: "I want to claim Port 6750
+    let listener = tokio::net::TcpListener::bind(&address)
         .await
-        .unwrap(); //Because we are in an async function, .await tells the CPU: "I'm waiting for the OS to finish opening this port.
-    // You can go do other tasks in the meantime, just wake me up when the port is ready."
+        .unwrap();
 
-    // 3. Launch the web server
     axum::serve(listener, final_router.into_make_service_with_connect_info::<std::net::SocketAddr>()).await.unwrap();
 }
