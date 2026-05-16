@@ -11,7 +11,6 @@ use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
 // the Extractor Implementation
-#[axum::async_trait]
 impl<S> FromRequestParts<S> for Claims
 // S is the entire AppState
 where
