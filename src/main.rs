@@ -129,18 +129,18 @@ async fn main() {
                 .post(api::handlers::turf_handlers::create_turf::create_turf),
         )
         .route(
-            "/turfs/:id",
+            "/turfs/{id}",
             axum::routing::get(api::handlers::turf_handlers::get_turf::get_a_turf_by_id)
                 .put(api::handlers::turf_handlers::update_turf::update_turf_handler)
                 .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
         )
         .route(
-            "/turfs/:id/games",
+            "/turfs/{id}/games",
             axum::routing::post(api::handlers::game_handlers::create_game::create_game_handler)
                 .get(api::handlers::game_handlers::get_games::get_games_handler),
         )
         .route(
-            "/games/:id",
+            "/games/{id}",
             axum::routing::get(
                 api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler,
             )
@@ -148,14 +148,14 @@ async fn main() {
             .delete(api::handlers::game_handlers::delete_game::delete_game_handler),
         )
         .route(
-            "/games/:id/settings",
+            "/games/{id}/settings",
             axum::routing::post(
                 api::handlers::game_settings_handlers::create_settings::create_settings_handler,
             )
             .get(api::handlers::game_settings_handlers::get_settings::get_settings_handler),
         )
         .route(
-            "/settings/:id",
+            "/settings/{id}",
             axum::routing::put(
                 api::handlers::game_settings_handlers::update_settings::update_settings_handler,
             )
@@ -164,65 +164,65 @@ async fn main() {
             ),
         )
         .route(
-            "/games/:id/slots",
+            "/games/{id}/slots",
             axum::routing::post(api::handlers::slot_handlers::create_slot::create_slot_handler)
                 .get(api::handlers::slot_handlers::get_slots::get_slots_handler),
         )
         .route(
-            "/games/:id/slots/custom",
+            "/games/{id}/slots/custom",
             axum::routing::post(
                 api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler,
             ),
         )
         .route(
-            "/games/:id/bookings",
+            "/games/{id}/bookings",
             axum::routing::get(
                 api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler,
             ),
         )
         .route(
-            "/slots/:id",
+            "/slots/{id}",
             axum::routing::delete(api::handlers::slot_handlers::delete_slot::delete_slot_handler),
         )
         .route(
-            "/slots/:id/book",
+            "/slots/{id}/book",
             axum::routing::post(
                 api::handlers::booking_handlers::initiate_booking::initiate_booking_handler,
             ),
         )
         .route(
-            "/slots/:id/pay/advance",
+            "/slots/{id}/pay/advance",
             axum::routing::post(api::handlers::booking_handlers::pay_advance::pay_advance_handler),
         )
         .route(
-            "/slots/:id/pay/full",
+            "/slots/{id}/pay/full",
             axum::routing::post(api::handlers::booking_handlers::pay_full::pay_full_handler),
         )
         .route(
-            "/bookings/:id",
+            "/bookings/{id}",
             axum::routing::delete(
                 api::handlers::booking_handlers::cancel_booking::cancel_booking_handler,
             ),
         )
         .route(
-            "/bookings/:id/payment",
+            "/bookings/{id}/payment",
             axum::routing::patch(
                 api::handlers::booking_handlers::update_payment::update_payment_handler,
             ),
         )
         .route(
-            "/users/:id",
+            "/users/{id}",
             axum::routing::get(api::handlers::user_handlers::get_profile::get_profile_handler)
                 .put(api::handlers::user_handlers::update_profile::update_profile_handler),
         )
         .route(
-            "/users/:id/bookings",
+            "/users/{id}/bookings",
             axum::routing::get(
                 api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler,
             ),
         )
         .route(
-            "/users/:id/turfs",
+            "/users/{id}/turfs",
             axum::routing::get(
                 api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
             ),
