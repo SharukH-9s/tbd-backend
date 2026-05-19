@@ -184,7 +184,7 @@ impl BookingRepository {
         use bigdecimal::BigDecimal;
 
         let query = format!(
-            "SELECT b.id, b.payment_status, b.booking_time, b.contact_name, b.contact_phone,
+            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time, b.contact_name, b.contact_phone,
                     t.name as turf_name, g.name as game_name, s.final_price, s.start_time, s.end_time,
                     u.username, u.phone
              FROM bookings b
@@ -236,6 +236,7 @@ impl BookingRepository {
 
                 BookingDetail {
                     id: row.get("id"),
+                    slot_id: row.get("slot_id"),
                     booking_number: row.get("id"),
                     user_name,
                     user_phone,

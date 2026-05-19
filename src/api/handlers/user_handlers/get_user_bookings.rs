@@ -12,6 +12,7 @@ use serde::Serialize;
 #[derive(Debug, Serialize)]
 pub struct BookingDetail {
     pub id: i32,
+    pub slot_id: i32,
     pub booking_number: i32,
     pub user_name: Option<String>,
     pub user_phone: Option<String>,
