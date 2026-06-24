@@ -3,7 +3,6 @@ use crate::config::state::SharedState;
 use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::users::{Role, UserResponse};
 use crate::repositories::user_repo::UserRepository;
-use axum::http::StatusCode;
 use bcrypt::{DEFAULT_COST, hash};
 
 pub struct UserService;
@@ -15,18 +14,10 @@ impl UserService {
     ) -> Result<UserResponse, AppError> {
         // Validation: Check length of username and email first
         if payload.username.trim().len() <= 3 {
-            return Err(AppError {
-                code: error_codes::INVALID_USERNAME,
-                message: "Username must be at least 4 characters",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::INVALID_USERNAME, "Username must be at least 4 characters"));
         }
 
-        let hashed_pass = hash(&payload.password, DEFAULT_COST).map_err(|_| AppError {
-            code: error_codes::HASH_FAILED,
-            message: "Failed to hash password",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?; // hash returns Result<String, BcryptError>, so we use map_err to convert the error to AppError and return it using ? operator 
+        let hashed_pass = hash(&payload.password, DEFAULT_COST).map_err(|_| AppError::internal(error_codes::HASH_FAILED, "Failed to hash password"))?; // hash returns Result<String, BcryptError>, so we use map_err to convert the error to AppError and return it using ? operator 
 
         // atomic: validates for same username/email and inserts user in one atomic operation
         // this prevents race conditions where two concurrent requests could both pass the uniqueness checks
@@ -54,43 +45,25 @@ impl UserService {
     ) -> Result<UserResponse, AppError> {
         let mut conn = database.db.acquire().await.map_err(|e| {
             eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
+            AppError::internal(error_codes::DATABASE_ERROR, "Internal server error")
         })?;
 
         // 1. Authorization
         if caller_id != target_user_id && !matches!(caller_role, Role::Admin) {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "You do not have permission to update this profile",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to update this profile"));
         }
 
         // 2. Fetch existing user
         let existing_user = match UserRepository::find_by_id_tx(&mut *conn, target_user_id).await? {
             Some(u) => u,
-            None => {
-                return Err(AppError {
-                    code: error_codes::USER_NOT_FOUND,
-                    message: "User not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::USER_NOT_FOUND, "User not found")),
         };
 
         // 3. Merge fields & validate
         let final_username = match payload.username {
             Some(uname) => {
                 if uname.trim().len() <= 3 {
-                    return Err(AppError {
-                        code: error_codes::INVALID_USERNAME,
-                        message: "Username must be at least 4 characters",
-                        status: StatusCode::BAD_REQUEST,
-                    });
+                    return Err(AppError::bad_request(error_codes::INVALID_USERNAME, "Username must be at least 4 characters"));
                 }
                 uname
             }
@@ -99,11 +72,7 @@ impl UserService {
 
         let final_password_hash = match payload.password {
             Some(pass) if !pass.trim().is_empty() => {
-                hash(&pass, DEFAULT_COST).map_err(|_| AppError {
-                    code: error_codes::HASH_FAILED,
-                    message: "Failed to hash password",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                hash(&pass, DEFAULT_COST).map_err(|_| AppError::internal(error_codes::HASH_FAILED, "Failed to hash password"))?
             }
             _ => existing_user.password_hash,
         };

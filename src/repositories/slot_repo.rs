@@ -1,7 +1,7 @@
+use crate::{db_err};
 use crate::config::state::SharedState;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::AppError;
 use crate::domain::models::slots::Slot;
-use axum::http::StatusCode;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use sqlx::query_as;
@@ -31,14 +31,7 @@ impl SlotRepository {
         .bind(business_day_end)
         .fetch_optional(executor) // producing Result<Option<RowType>, sqlx::Error>
         .await
-        .map_err(|e| {
-            eprintln!("Database error in find_latest_end_time_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to calculate next slot start time",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?; // unwraps the Result to Option<(Option<DateTime<Utc>>,)> one option is from fetch_optional and the other is from MAX()
+        .map_err(db_err!("Failed to calculate next slot start time"))?; // unwraps the Result to Option<(Option<DateTime<Utc>>,)> one option is from fetch_optional and the other is from MAX()
 
         // Unwrap the outer Option (no row at all) and inner Option (MAX of an empty set = NULL)
         Ok(row.and_then(|(max_time,)| max_time))
@@ -65,17 +58,7 @@ impl SlotRepository {
         .bind(business_day_end)
         .fetch_all(&state.db)
         .await
-        .map_err(|e| {
-            eprintln!(
-                "Database error in find_all_by_game_and_window (slots): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to fetch slots from database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Vec<Slot>, AppError>
+        .map_err(db_err!("Failed to fetch slots from database")) // Result<Vec<Slot>, AppError>
     }
 
     /// Finds all slots that overlap with the given time window (used for overlap detection).
@@ -99,14 +82,7 @@ impl SlotRepository {
         .bind(start_time)
         .fetch_all(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in find_overlapping_slots_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to check for slot overlaps",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Vec<Slot>, AppError>
+        .map_err(db_err!("Failed to check for slot overlaps")) // Result<Vec<Slot>, AppError>
     }
 
     /// Inserts a new slot row inside a transaction.
@@ -136,14 +112,7 @@ impl SlotRepository {
         .bind(status)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in insert_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to create slot in database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Slot, AppError>
+        .map_err(db_err!("Failed to create slot in database")) // Result<Slot, AppError>
     }
 
     /// Fetches a single slot by ID inside a transaction.
@@ -156,14 +125,7 @@ impl SlotRepository {
             .bind(slot_id)
             .fetch_optional(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_by_id_tx (slots): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch slot from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<Option<Slot>, AppError>
+            .map_err(db_err!("Failed to fetch slot from database")) // Result<Option<Slot>, AppError>
     }
 
     /// Counts active (Booked or Pending) slots for a game that fall OUTSIDE a proposed
@@ -192,17 +154,7 @@ impl SlotRepository {
         .bind(new_window_end)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!(
-                "Database error in count_active_slots_outside_window_tx (slots): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to check for orphaned active slots",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        .map_err(db_err!("Failed to check for orphaned active slots"))?;
 
         Ok(row.0)
     }
@@ -219,14 +171,7 @@ impl SlotRepository {
         .bind(game_id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in count_active_slots_by_game_tx: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to check for active bookings before deletion",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        .map_err(db_err!("Failed to check for active bookings before deletion"))?;
 
         Ok(row.0)
     }
@@ -241,14 +186,7 @@ impl SlotRepository {
             .bind(slot_id)
             .execute(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in delete_tx (slots): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to delete slot from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<PgQueryResult, AppError>
+            .map_err(db_err!("Failed to delete slot from database")) // Result<PgQueryResult, AppError>
     }
 
     /// Marks a slot as available inside a transaction
@@ -262,14 +200,7 @@ impl SlotRepository {
         .bind(slot_id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in make_available_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to update slot status to available",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to update slot status to available"))
     }
 
     /// Atomically locks a slot as Pending for 15 minutes.
@@ -289,14 +220,7 @@ impl SlotRepository {
         .bind(slot_id)
         .fetch_optional(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in lock_as_pending_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to lock slot for booking",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to lock slot for booking"))
     }
 
     /// Marks a slot as fully Booked (clears pending lock).
@@ -311,14 +235,7 @@ impl SlotRepository {
         .bind(slot_id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in mark_booked_tx (slots): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to mark slot as booked",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to mark slot as booked"))
     }
 
     /// Resets expired Pending slots back to Available.
@@ -334,16 +251,6 @@ impl SlotRepository {
         .execute(db)
         .await
         .map(|result| result.rows_affected())
-        .map_err(|e| {
-            eprintln!(
-                "Database error in reset_expired_pending_slots (slots): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to reset expired pending slots",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to reset expired pending slots"))
     }
 }

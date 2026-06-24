@@ -5,7 +5,6 @@ use crate::domain::models::users::Role;
 use crate::repositories::game_repo::GameRepository;
 use crate::repositories::slot_repo::SlotRepository;
 use crate::repositories::turf_repo::TurfRepository;
-use axum::http::StatusCode;
 use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use chrono_tz::Asia::Dhaka;
 
@@ -21,22 +20,12 @@ impl GameService {
         game_start_time: NaiveTime,
         game_end_time: NaiveTime,
     ) -> Result<Game, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Verify turf exists
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
         };
 
         // 2. Verify permission (Admin or Turf Manager)
@@ -44,11 +33,7 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::GAME_ACCESS_DENIED,
-                message: "You do not have permission to add games to this turf",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to add games to this turf"));
         }
 
         // 3. Insert game
@@ -56,11 +41,7 @@ impl GameService {
             GameRepository::insert_tx(&mut *tx, turf_id, &name, game_start_time, game_end_time)
                 .await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for game creation",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for game creation"))?;
 
         Ok(newly_created_game)
     }
@@ -72,30 +53,18 @@ impl GameService {
         // Verify turf exists first
         let turf = TurfRepository::find_by_id(state, turf_id).await?;
         if turf.is_none() {
-            return Err(AppError {
-                code: error_codes::TURF_NOT_FOUND,
-                message: "Turf not found",
-                status: StatusCode::NOT_FOUND,
-            });
+            return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found"));
         }
 
         GameRepository::find_all_games_by_turf_id(state, turf_id).await
     }
 
     pub async fn get_game_by_id(state: &SharedState, game_id: i32) -> Result<Game, AppError> {
-        let mut conn = state.db.acquire().await.map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "Failed to acquire database connection",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut conn = state.db.acquire().await.map_err(|_| AppError::internal(error_codes::DATABASE_ERROR, "Failed to acquire database connection"))?;
 
         match GameRepository::find_by_id_tx(&mut *conn, game_id).await? {
             Some(g) => Ok(g),
-            None => Err(AppError {
-                code: error_codes::GAME_NOT_FOUND,
-                message: "Game not found",
-                status: StatusCode::NOT_FOUND,
-            }),
+            None => Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         }
     }
 
@@ -108,34 +77,18 @@ impl GameService {
         game_start_time: Option<NaiveTime>,
         game_end_time: Option<NaiveTime>,
     ) -> Result<Game, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Fetch the game
         let existing_game = match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // 2. Fetch the turf to check ownership
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, existing_game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check
@@ -143,11 +96,7 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::GAME_ACCESS_DENIED,
-                message: "You do not have permission to update this game",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to update this game"));
         }
 
         // 4. Merge fields (keep existing value if caller omitted the field)
@@ -168,31 +117,19 @@ impl GameService {
             let new_window_start = Dhaka
                 .from_local_datetime(&NaiveDateTime::new(today, final_start))
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute proposed business day start time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute proposed business day start time"))?
                 .with_timezone(&Utc);
 
             // Build proposed window end (handles midnight rollover)
             let end_date = if final_end < final_start {
-                today.succ_opt().ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute next business day for conflict check",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                today.succ_opt().ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute next business day for conflict check"))?
             } else {
                 today
             };
             let new_window_end = Dhaka
                 .from_local_datetime(&NaiveDateTime::new(end_date, final_end))
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute proposed business day end time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute proposed business day end time"))?
                 .with_timezone(&Utc);
 
             let orphaned_count = SlotRepository::count_active_slots_outside_window_tx(
@@ -204,11 +141,7 @@ impl GameService {
             .await?;
 
             if orphaned_count > 0 {
-                return Err(AppError {
-                    code: error_codes::GAME_WINDOW_CONFLICT,
-                    message: "Cannot narrow the game window: active (Booked or Pending) slots exist outside the proposed operating hours",
-                    status: StatusCode::CONFLICT,
-                });
+                return Err(AppError::conflict(error_codes::GAME_WINDOW_CONFLICT, "Cannot narrow the game window: active (Booked or Pending) slots exist outside the proposed operating hours"));
             }
         }
 
@@ -217,11 +150,7 @@ impl GameService {
             GameRepository::update_tx(&mut *tx, game_id, &final_name, final_start, final_end)
                 .await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for game update",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for game update"))?;
 
         Ok(updated_game)
     }
@@ -232,34 +161,18 @@ impl GameService {
         caller_id: i32,
         caller_role: Role,
     ) -> Result<(), AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Fetch the game
         let existing_game = match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // 2. Fetch the turf to check ownership
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, existing_game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check
@@ -267,30 +180,18 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::GAME_ACCESS_DENIED,
-                message: "You do not have permission to delete this game",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to delete this game"));
         }
 
         // 4. Protection: Prevent deletion if active bookings exist
         let active_count = SlotRepository::count_active_slots_by_game_tx(&mut *tx, game_id).await?;
         if active_count > 0 {
-            return Err(AppError {
-                code: error_codes::GAME_HAS_ACTIVE_BOOKINGS,
-                message: "Cannot delete game: active bookings (Booked or Pending) exist for this game",
-                status: StatusCode::CONFLICT,
-            });
+            return Err(AppError::conflict(error_codes::GAME_HAS_ACTIVE_BOOKINGS, "Cannot delete game: active bookings (Booked or Pending) exist for this game"));
         }
 
         // 5. Delete
         GameRepository::delete_tx(&mut *tx, game_id).await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for game deletion",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for game deletion"))
     }
 }

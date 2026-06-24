@@ -1,7 +1,7 @@
+use crate::{db_conn_err, db_err};
 use crate::config::state::SharedState;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::AppError;
 use crate::domain::models::games::Game;
-use axum::http::StatusCode;
 use chrono::NaiveTime;
 use sqlx::query_as;
 
@@ -26,14 +26,7 @@ impl GameRepository {
         .bind(game_end_time)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in insert_tx (game): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to insert game into database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Game, AppError>
+        .map_err(db_err!("Failed to insert game into database")) // Result<Game, AppError>
     }
 
     pub async fn find_all_games_by_turf_id(
@@ -44,28 +37,14 @@ impl GameRepository {
             .bind(turf_id)
             .fetch_all(&state.db)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_by_turf_id (game): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch games from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<Vec<Game>, AppError>
+            .map_err(db_err!("Failed to fetch games from database")) // Result<Vec<Game>, AppError>
     }
 
     pub async fn find_by_id(
         state: &SharedState,
         id: i32,
     ) -> Result<Option<Game>, AppError> {
-        let mut conn = state.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
         Self::find_by_id_tx(&mut *conn, id).await
     }
 
@@ -77,14 +56,7 @@ impl GameRepository {
             .bind(id)
             .fetch_optional(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_by_id_tx (game): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch game from database (tx)",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<Option<Game>, AppError>
+            .map_err(db_err!("Failed to fetch game from database (tx)")) // Result<Option<Game>, AppError>
     }
 
     pub async fn update_tx(
@@ -105,14 +77,7 @@ impl GameRepository {
         .bind(id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in update_tx (game): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to update game in database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Game, AppError>
+        .map_err(db_err!("Failed to update game in database")) // Result<Game, AppError>
     }
 
     pub async fn delete_tx(
@@ -123,13 +88,6 @@ impl GameRepository {
             .bind(id)
             .execute(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in delete_tx (game): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to delete game from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<sqlx::postgres::PgQueryResult, AppError>
+            .map_err(db_err!("Failed to delete game from database")) // Result<sqlx::postgres::PgQueryResult, AppError>
     }
 }

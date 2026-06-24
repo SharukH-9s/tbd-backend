@@ -7,7 +7,6 @@ use crate::repositories::game_repo::GameRepository;
 use crate::repositories::game_settings_repo::GameSettingsRepository;
 use crate::repositories::slot_repo::SlotRepository;
 use crate::repositories::turf_repo::TurfRepository;
-use axum::http::StatusCode;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Duration, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::Asia::Dhaka;
@@ -40,66 +39,36 @@ impl SlotService {
         caller_id: i32,
         caller_role: Role,
     ) -> Result<Slot, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // ── 1. Verify the game exists ─
         let game = match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // ── 2. Verify the settings template exists ───────────────────────────
         let settings = match GameSettingsRepository::find_by_id_tx(&mut *tx, settings_id).await? {
             Some(s) => s,
-            None => {
-                return Err(AppError {
-                    code: error_codes::SETTINGS_NOT_FOUND,
-                    message: "Game settings template not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::SETTINGS_NOT_FOUND, "Game settings template not found")),
         };
 
         // Guard: settings must belong to the same game
         if settings.game_id != game_id {
-            return Err(AppError {
-                code: error_codes::SETTINGS_NOT_FOUND,
-                message: "Settings template does not belong to this game",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::SETTINGS_NOT_FOUND, "Settings template does not belong to this game"));
         }
 
         // ── 3. Security check ────────────────────────────────────────────────
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         let is_admin = matches!(caller_role, Role::Admin);
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "Only the turf manager or an Admin can create slots",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only the turf manager or an Admin can create slots"));
         }
 
         // ── 4. Compute business day window (midnight rollover safe) ───────────
@@ -111,22 +80,14 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute business day start time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })? // unwraps the Result to DateTime<Utc>
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute business day start time"))? // unwraps the Result to DateTime<Utc>
                 .with_timezone(&Utc) // converts to UTC DateTime and returned as business_day_start
         };
 
         let business_day_end: DateTime<Utc> = {
             let end_date = if game.game_end_time < game.game_start_time {
                 // Crosses midnight — end belongs to the NEXT calendar day
-                slot_date.succ_opt().ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute next business day",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })? // unwraps the Result to DateTime<Utc>
+                slot_date.succ_opt().ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute next business day"))? // unwraps the Result to DateTime<Utc>
             } else {
                 slot_date
             };
@@ -134,11 +95,7 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute business day end time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })? // unwraps the Result to DateTime<Utc>
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute business day end time"))? // unwraps the Result to DateTime<Utc>
                 .with_timezone(&Utc) // converts to UTC DateTime and returned as business_day_end
         };
 
@@ -166,11 +123,7 @@ impl SlotService {
         // ── 7. Boundary guard ────────────────────────────────────────────────
         // The calculated end_time must not go past the game's closing time.
         if end_time > business_day_end {
-            return Err(AppError {
-                code: error_codes::SLOT_EXCEEDS_BOUNDARY,
-                message: "Cannot fit the requested slot — calculated end time exceeds the game closing time",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::SLOT_EXCEEDS_BOUNDARY, "Cannot fit the requested slot — calculated end time exceeds the game closing time"));
         }
 
         // ── 8. Resolve status & offline booking validation ───────────────────
@@ -184,19 +137,11 @@ impl SlotService {
             final_contact_phone = contact_phone.as_deref().unwrap_or("").trim().to_string();
 
             if final_contact_name.is_empty() || final_contact_phone.is_empty() {
-                return Err(AppError {
-                    code: error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED,
-                    message: "both contact_name and contact_phone are required for offline bookings",
-                    status: StatusCode::BAD_REQUEST,
-                });
+                return Err(AppError::bad_request(error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED, "both contact_name and contact_phone are required for offline bookings"));
             }
         } else if status != "Available" {
             // Only "Available" and "Booked" are valid initial statuses
-            return Err(AppError {
-                code: error_codes::SLOT_INVALID_STATUS,
-                message: "initial_status must be 'Available' or 'Booked'",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::SLOT_INVALID_STATUS, "initial_status must be 'Available' or 'Booked'"));
         }
 
         // ── 9. Insert the slot ───────────────────────────────────────────────
@@ -228,11 +173,7 @@ impl SlotService {
         }
 
         // ── 10. Commit ──────────────────────────────────────────────────────
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize slot creation",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize slot creation"))?;
 
         Ok(slot)
     }
@@ -245,21 +186,11 @@ impl SlotService {
         slot_date: NaiveDate,
     ) -> Result<Vec<Slot>, AppError> {
         // Need one connection to fetch the game's opening hours first
-        let mut conn = state.db.acquire().await.map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "Failed to acquire database connection",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut conn = state.db.acquire().await.map_err(|_| AppError::internal(error_codes::DATABASE_ERROR, "Failed to acquire database connection"))?;
 
         let game = match GameRepository::find_by_id_tx(&mut *conn, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // Compute business day start (on the requested date at game's opening time)
@@ -268,11 +199,7 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute business day start time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute business day start time"))?
                 .with_timezone(&Utc)
         };
 
@@ -281,11 +208,7 @@ impl SlotService {
         // Otherwise: end belongs to same calendar day
         let business_day_end: DateTime<Utc> = {
             let end_date = if game.game_end_time < game.game_start_time {
-                slot_date.succ_opt().ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute next business day",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                slot_date.succ_opt().ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute next business day"))?
             } else {
                 slot_date
             };
@@ -293,11 +216,7 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to compute business day end time",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute business day end time"))?
                 .with_timezone(&Utc)
         };
 
@@ -345,45 +264,25 @@ impl SlotService {
         caller_id: i32,
         caller_role: Role,
     ) -> Result<Slot, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // ── 1. Verify the game exists ─
         let game = match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // ── 2. Security check ────────────────────────────────────────────────
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         let is_admin = matches!(caller_role, Role::Admin);
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "Only the turf manager or an Admin can create slots",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only the turf manager or an Admin can create slots"));
         }
 
         // ── 3. Resolve UTC timestamps from local Dhaka times ─────────────────
@@ -397,11 +296,7 @@ impl SlotService {
         // Determine the correct calendar date for the start time
         let start_date = if crosses_midnight && start_time_local < game.game_end_time {
             // Start is in the after-midnight tail → belongs to slot_date + 1
-            slot_date.succ_opt().ok_or_else(|| AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to compute next calendar day for start time",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            })?
+            slot_date.succ_opt().ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute next calendar day for start time"))?
         } else {
             slot_date
         };
@@ -409,11 +304,7 @@ impl SlotService {
         // Determine the correct calendar date for the end time
         let end_date = if crosses_midnight && end_time_local <= game.game_end_time {
             // End is in the after-midnight tail → belongs to slot_date + 1
-            slot_date.succ_opt().ok_or_else(|| AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to compute next calendar day for end time",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            })?
+            slot_date.succ_opt().ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to compute next calendar day for end time"))?
         } else {
             slot_date
         };
@@ -423,11 +314,7 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to resolve start time to UTC",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to resolve start time to UTC"))?
                 .with_timezone(&Utc)
         };
 
@@ -436,11 +323,7 @@ impl SlotService {
             Dhaka
                 .from_local_datetime(&naive)
                 .single()
-                .ok_or_else(|| AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to resolve end time to UTC",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                })?
+                .ok_or_else(|| AppError::internal(error_codes::DATABASE_ERROR, "Failed to resolve end time to UTC"))?
                 .with_timezone(&Utc)
         };
 
@@ -459,27 +342,15 @@ impl SlotService {
         };
 
         if !start_within_hours {
-            return Err(AppError {
-                code: error_codes::BAD_REQUEST,
-                message: "Start time is outside the game's operating hours",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::BAD_REQUEST, "Start time is outside the game's operating hours"));
         }
 
         if !end_within_hours {
-            return Err(AppError {
-                code: error_codes::SLOT_EXCEEDS_BOUNDARY,
-                message: "End time is outside the game's operating hours",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::SLOT_EXCEEDS_BOUNDARY, "End time is outside the game's operating hours"));
         }
 
         if end_time <= start_time {
-            return Err(AppError {
-                code: error_codes::BAD_REQUEST,
-                message: "End time must be after start time",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::BAD_REQUEST, "End time must be after start time"));
         }
 
         // ── 5. Check for overlaps with existing slots ────────────────────────
@@ -492,11 +363,7 @@ impl SlotService {
         .await?;
 
         if !conflicting_slots.is_empty() {
-            return Err(AppError {
-                code: error_codes::SLOT_OVERLAP,
-                message: "The requested time slot overlaps with an existing slot",
-                status: StatusCode::CONFLICT,
-            });
+            return Err(AppError::conflict(error_codes::SLOT_OVERLAP, "The requested time slot overlaps with an existing slot"));
         }
 
         // ── 6. Resolve status & offline booking validation ───────────────────
@@ -510,18 +377,10 @@ impl SlotService {
             final_contact_phone = contact_phone.as_deref().unwrap_or("").trim().to_string();
 
             if final_contact_name.is_empty() || final_contact_phone.is_empty() {
-                return Err(AppError {
-                    code: error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED,
-                    message: "both contact_name and contact_phone are required for offline bookings",
-                    status: StatusCode::BAD_REQUEST,
-                });
+                return Err(AppError::bad_request(error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED, "both contact_name and contact_phone are required for offline bookings"));
             }
         } else if status != "Available" {
-            return Err(AppError {
-                code: error_codes::SLOT_INVALID_STATUS,
-                message: "initial_status must be 'Available' or 'Booked'",
-                status: StatusCode::BAD_REQUEST,
-            });
+            return Err(AppError::bad_request(error_codes::SLOT_INVALID_STATUS, "initial_status must be 'Available' or 'Booked'"));
         }
 
         // ── 7. Insert the slot ───────────────────────────────────────────────
@@ -549,11 +408,7 @@ impl SlotService {
         }
 
         // ── 8. Commit ──────────────────────────────────────────────────────
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize custom slot creation",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize custom slot creation"))?;
 
         Ok(slot)
     }
@@ -566,45 +421,23 @@ impl SlotService {
         caller_id: i32,
         caller_role: Role,
     ) -> Result<(), AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Fetch the slot
         let slot = match SlotRepository::find_by_id_tx(&mut *tx, slot_id).await? {
             Some(s) => s,
-            None => {
-                return Err(AppError {
-                    code: error_codes::SLOT_NOT_FOUND,
-                    message: "Slot not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::SLOT_NOT_FOUND, "Slot not found")),
         };
 
         // 2. Fetch parent game → turf for ownership check
         let game = match GameRepository::find_by_id_tx(&mut *tx, slot.game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Parent game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Parent game not found")),
         };
 
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check
@@ -612,30 +445,18 @@ impl SlotService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "Only the turf manager or an Admin can delete slots",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only the turf manager or an Admin can delete slots"));
         }
 
         // 4. Status guard — Pending and Booked are financial records, never delete them
         if slot.status != "Available" {
-            return Err(AppError {
-                code: error_codes::SLOT_NOT_DELETABLE,
-                message: "Only Available slots can be deleted. Pending and Booked slots are protected.",
-                status: StatusCode::CONFLICT,
-            });
+            return Err(AppError::conflict(error_codes::SLOT_NOT_DELETABLE, "Only Available slots can be deleted. Pending and Booked slots are protected."));
         }
 
         // 5. Delete
         SlotRepository::delete_tx(&mut *tx, slot_id).await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize slot deletion",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize slot deletion"))?;
 
         Ok(())
     }

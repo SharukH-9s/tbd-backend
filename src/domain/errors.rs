@@ -89,6 +89,30 @@ impl IntoResponse for AppError {
     }
 }
 
+impl AppError {
+    pub fn not_found(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::NOT_FOUND }
+    }
+    pub fn forbidden(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::FORBIDDEN }
+    }
+    pub fn conflict(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::CONFLICT }
+    }
+    pub fn internal(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::INTERNAL_SERVER_ERROR }
+    }
+    pub fn bad_request(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::BAD_REQUEST }
+    }
+    pub fn unauthorized(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::UNAUTHORIZED }
+    }
+    pub fn service_unavailable(code: &'static str, message: &'static str) -> Self {
+        Self { code, message, status: StatusCode::SERVICE_UNAVAILABLE }
+    }
+}
+
 /*
 we could easily skip the ErrorResponse struct and just return the ErrorBody directly.
 Most professional APIs choose a standard "root" key for different types of responses so the frontend knows exactly where to look.
@@ -110,3 +134,45 @@ JSON
   "code": "INVALID_TOKEN",
   "message": "Bearer prefix missing"
 } */
+
+/// Produces a closure suitable for `.map_err()` on any sqlx query.
+/// Prints the underlying error and maps it to a DATABASE_ERROR AppError.
+///
+/// Usage:
+/// ```
+/// .map_err(db_err!("Failed to fetch user from database"))
+/// ```
+#[macro_export]
+macro_rules! db_err {
+    ($msg:expr) => {
+        |e| {
+            eprintln!("Database error: {}", e);
+            $crate::domain::errors::AppError {
+                code: $crate::domain::errors::error_codes::DATABASE_ERROR,
+                message: $msg,
+                status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        }
+    };
+}
+
+/// Produces a closure for `.map_err()` specifically on `pool.acquire()` calls.
+/// Semantically identical to `db_err!` but signals a connection-pool failure at the call site.
+///
+/// Usage:
+/// ```
+/// let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
+/// ```
+#[macro_export]
+macro_rules! db_conn_err {
+    () => {
+        |e| {
+            eprintln!("Failed to acquire database connection: {}", e);
+            $crate::domain::errors::AppError {
+                code: $crate::domain::errors::error_codes::DATABASE_ERROR,
+                message: "Internal server error",
+                status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            }
+        }
+    };
+}

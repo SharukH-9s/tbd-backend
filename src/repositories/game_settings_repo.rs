@@ -1,7 +1,7 @@
+use crate::{db_err};
 use crate::config::state::SharedState;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::AppError;
 use crate::domain::models::games::GameSettings;
-use axum::http::StatusCode;
 use bigdecimal::BigDecimal;
 use sqlx::query_as;
 
@@ -27,14 +27,7 @@ impl GameSettingsRepository {
         .bind(slot_duration_mins)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in insert_tx (game_settings): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to insert game settings into database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<GameSettings, AppError>
+        .map_err(db_err!("Failed to insert game settings into database")) // Result<GameSettings, AppError>
     }
 
     /// Fetch all settings templates for a given game (no transaction needed — read-only).
@@ -48,17 +41,7 @@ impl GameSettingsRepository {
         .bind(game_id)
         .fetch_all(&state.db)
         .await
-        .map_err(|e| {
-            eprintln!(
-                "Database error in find_all_by_game_id (game_settings): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to fetch game settings from database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<Vec<GameSettings>, AppError>
+        .map_err(db_err!("Failed to fetch game settings from database")) // Result<Vec<GameSettings>, AppError>
     }
 
     /// Fetch a single settings template by its own ID (inside a transaction).
@@ -70,14 +53,7 @@ impl GameSettingsRepository {
             .bind(id)
             .fetch_optional(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_by_id_tx (game_settings): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch game settings from database (tx)",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            }) // Result<Option<GameSettings>, AppError>
+            .map_err(db_err!("Failed to fetch game settings from database (tx)")) // Result<Option<GameSettings>, AppError>
     }
 
     /// Update an existing settings template (inside a transaction).
@@ -100,27 +76,22 @@ impl GameSettingsRepository {
         .bind(id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in update_tx (game_settings): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to update game settings in database",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        }) // Result<GameSettings, AppError>
+        .map_err(db_err!("Failed to update game settings in database")) // Result<GameSettings, AppError>
     }
 
     /// Delete a settings template by ID (inside a transaction).
+    /// Preserves FK-constraint detection: if linked slots exist, returns a specific message.
     pub async fn delete_tx(
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
+        use crate::domain::errors::error_codes;
         sqlx::query("DELETE FROM game_settings WHERE id = $1")
             .bind(id)
             .execute(executor)
             .await
             .map_err(|e| {
-                eprintln!("Database error in delete_tx (game_settings): {}", e);
+                eprintln!("Database error: {}", e);
                 let message = if e.to_string().contains("fk") || e.to_string().contains("foreign key") {
                     "Failed to delete game settings from database. There are slots made of this setting."
                 } else {
@@ -129,7 +100,7 @@ impl GameSettingsRepository {
                 AppError {
                     code: error_codes::DATABASE_ERROR,
                     message,
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    status: axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 }
             }) // Result<sqlx::postgres::PgQueryResult, AppError>
     }

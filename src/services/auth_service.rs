@@ -4,7 +4,6 @@ use crate::api::handlers::login::LoginReq;
 use crate::config::state::SharedState;
 use crate::domain::errors::{AppError, error_codes};
 use crate::repositories::user_repo::UserRepository;
-use axum::http::StatusCode;
 use uuid::Uuid;
 
 pub struct AuthService;
@@ -17,31 +16,13 @@ impl AuthService {
     ) -> Result<(LoginResponse, String), AppError> {
         let user = match UserRepository::find_by_email(database, &payload.email).await? {
             Some(u) => u,
-            None => {
-                return Err(AppError {
-                    code: error_codes::INVALID_CREDENTIALS,
-                    message: "Invalid email or password",
-                    status: StatusCode::UNAUTHORIZED,
-                });
-            }
+            None => return Err(AppError::unauthorized(error_codes::INVALID_CREDENTIALS, "Invalid email or password")),
         };
 
         match bcrypt::verify(&payload.password, &user.password_hash) {
             Ok(true) => {}
-            Ok(false) => {
-                return Err(AppError {
-                    code: error_codes::INVALID_CREDENTIALS,
-                    message: "Invalid email or password",
-                    status: StatusCode::UNAUTHORIZED,
-                });
-            }
-            Err(_) => {
-                return Err(AppError {
-                    code: error_codes::UN_HASH_FAILED,
-                    message: "Couldnt unhash the password!",
-                    status: StatusCode::SERVICE_UNAVAILABLE,
-                });
-            }
+            Ok(false) => return Err(AppError::unauthorized(error_codes::INVALID_CREDENTIALS, "Invalid email or password")),
+            Err(_) => return Err(AppError::service_unavailable(error_codes::UN_HASH_FAILED, "Couldnt unhash the password!")),
         };
 
         let user_id = user.id;

@@ -1,3 +1,4 @@
+use crate::{db_conn_err, db_err};
 use crate::config::state::SharedState;
 use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::users::{Role, User};
@@ -10,14 +11,7 @@ impl UserRepository {
         database: &SharedState,
         email: &str,
     ) -> Result<Option<User>, AppError> {
-        let mut conn = database.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = database.db.acquire().await.map_err(db_conn_err!())?;
         Self::find_by_email_tx(&mut *conn, email).await
     }
 
@@ -25,14 +19,7 @@ impl UserRepository {
         database: &SharedState,
         id: i32,
     ) -> Result<Option<User>, AppError> {
-        let mut conn = database.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = database.db.acquire().await.map_err(db_conn_err!())?;
         Self::find_by_id_tx(&mut *conn, id).await
     }
 
@@ -47,11 +34,7 @@ impl UserRepository {
         .bind(email)
         .fetch_optional(executor)
         .await
-        .map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "A database error occurred while fetching user by email",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })
+        .map_err(db_err!("A database error occurred while fetching user by email"))
     }
 
     pub async fn find_by_id_tx(
@@ -65,25 +48,14 @@ impl UserRepository {
         .bind(id)
         .fetch_optional(executor)
         .await
-        .map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "A database error occurred while fetching user by id",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })
+        .map_err(db_err!("A database error occurred while fetching user by id"))
     }
 
     pub async fn insert_user_if_unique(
         database: &SharedState,
         user_data: (String, String, String, String, Role),
     ) -> Result<User, AppError> {
-        let mut conn = database.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = database.db.acquire().await.map_err(db_conn_err!())?;
         Self::insert_user_tx(&mut *conn, user_data).await
     }
 
@@ -106,6 +78,7 @@ impl UserRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| {
+            // Unique constraint violations need specific error codes — cannot use db_err! here.
             if let sqlx::Error::Database(db_err) = &e {
                 if db_err.code().as_deref() == Some("23505") {
                     let msg = db_err.message();
@@ -125,12 +98,13 @@ impl UserRepository {
                     }
                 }
             }
+            eprintln!("Database error: {}", e);
             AppError {
                 code: error_codes::DATABASE_ERROR,
                 message: "A database error occurred during registration",
                 status: StatusCode::INTERNAL_SERVER_ERROR,
             }
-        }) // returns Result<User, AppError> 
+        }) // returns Result<User, AppError>
     }
 
     pub async fn promote_to_manager_tx(
@@ -150,14 +124,7 @@ impl UserRepository {
             .bind(user_id)
             .execute(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in set_role_tx: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to update user role",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })
+            .map_err(db_err!("Failed to update user role"))
     }
 
     // Delete ALL refresh tokens for a given user.
@@ -170,14 +137,7 @@ impl UserRepository {
             .bind(user_id)
             .execute(&database.db)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in delete_tokens_for_user: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "A database error occurred while deleting the refresh tokens",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })
+            .map_err(db_err!("A database error occurred while deleting the refresh tokens"))
     }
 
     // Store a new refresh token linked to a user_id
@@ -191,14 +151,7 @@ impl UserRepository {
             .bind(user_id)
             .execute(&database.db)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in store_refresh_token: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "A database error occurred while storing the refresh token",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })
+            .map_err(db_err!("A database error occurred while storing the refresh token"))
     }
 
     // Delete the old refresh token and return the user_id and role it belonged to.
@@ -216,17 +169,10 @@ impl UserRepository {
         .bind(old_token)
         .fetch_optional(&database.db)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in swap_refresh_token: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "A database error occurred",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?; // ? will unwrap the Result<Option<(i32, Role)>, sqlx::Error> to Option<(i32, Role)>
+        .map_err(db_err!("A database error occurred"))?; // ? will unwrap the Result<Option<(i32, Role)>, sqlx::Error> to Option<(i32, Role)>
 
         match result {
-            Some(user_id_and_role) => return Ok(user_id_and_role), // ? operatior will unwrap this Ok(user_id_and_role) in the refresh_access_token function
+            Some(user_id_and_role) => return Ok(user_id_and_role), // ? operator will unwrap this Ok(user_id_and_role) in the refresh_access_token function
             None => {
                 return Err(AppError {
                     code: error_codes::INVALID_REFRESH_TOKEN,
@@ -246,14 +192,7 @@ impl UserRepository {
             .bind(token)
             .execute(&database.db)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in remove_refresh_token: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "A database error occurred while removing the refresh token",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })
+            .map_err(db_err!("A database error occurred while removing the refresh token"))
     }
 
     pub async fn update_profile_tx(
@@ -278,6 +217,7 @@ impl UserRepository {
         .fetch_one(executor)
         .await
         .map_err(|e| {
+            // Unique constraint on username must return a specific error — cannot use db_err! here.
             if let sqlx::Error::Database(db_err) = &e {
                 if db_err.code().as_deref() == Some("23505") {
                     let msg = db_err.message();
@@ -290,7 +230,7 @@ impl UserRepository {
                     }
                 }
             }
-            eprintln!("Database error in update_profile_tx: {}", e);
+            eprintln!("Database error: {}", e);
             AppError {
                 code: error_codes::DATABASE_ERROR,
                 message: "A database error occurred while updating the profile",

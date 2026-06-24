@@ -1,0 +1,504 @@
+{
+  "communities": {
+    "0": [
+      "datetime",
+      "domain_errors_apperror",
+      "domain_errors_apperror_into_response",
+      "models_bookings",
+      "models_bookings_booking",
+      "models_slots_slot",
+      "models_users_user",
+      "option",
+      "pgconnection",
+      "pgqueryresult",
+      "repositories_booking_repo",
+      "repositories_booking_repo_bookingrepository",
+      "repositories_booking_repo_bookingrepository_delete_by_id_tx",
+      "repositories_booking_repo_bookingrepository_find_by_id_tx",
+      "repositories_booking_repo_bookingrepository_insert_offline_tx",
+      "repositories_booking_repo_bookingrepository_insert_tx",
+      "repositories_booking_repo_bookingrepository_mark_fully_paid_by_manager_tx",
+      "repositories_booking_repo_bookingrepository_update_payment_status_tx",
+      "repositories_booking_repo_bookingrepository_user_has_pending_booking_tx",
+      "repositories_game_repo_gamerepository_delete_tx",
+      "repositories_game_settings_repo_gamesettingsrepository_delete_tx",
+      "repositories_slot_repo_slotrepository",
+      "repositories_slot_repo_slotrepository_count_active_slots_by_game_tx",
+      "repositories_slot_repo_slotrepository_count_active_slots_outside_window_tx",
+      "repositories_slot_repo_slotrepository_delete_tx",
+      "repositories_slot_repo_slotrepository_find_all_by_game_and_window",
+      "repositories_slot_repo_slotrepository_find_by_id_tx",
+      "repositories_slot_repo_slotrepository_find_latest_end_time_tx",
+      "repositories_slot_repo_slotrepository_find_overlapping_slots_tx",
+      "repositories_slot_repo_slotrepository_insert_tx",
+      "repositories_slot_repo_slotrepository_lock_as_pending_tx",
+      "repositories_slot_repo_slotrepository_make_available_tx",
+      "repositories_slot_repo_slotrepository_mark_booked_tx",
+      "repositories_turf_repo_turfrepository_delete_tx",
+      "repositories_user_repo_userrepository",
+      "repositories_user_repo_userrepository_delete_tokens_for_user",
+      "repositories_user_repo_userrepository_find_by_email",
+      "repositories_user_repo_userrepository_find_by_email_tx",
+      "repositories_user_repo_userrepository_find_by_id",
+      "repositories_user_repo_userrepository_find_by_id_tx",
+      "repositories_user_repo_userrepository_promote_to_manager_tx",
+      "repositories_user_repo_userrepository_remove_refresh_token",
+      "repositories_user_repo_userrepository_set_role_tx",
+      "repositories_user_repo_userrepository_store_refresh_token",
+      "repositories_user_repo_userrepository_swap_refresh_token",
+      "repositories_user_repo_userrepository_update_profile_tx",
+      "response",
+      "services_auth_service_authservice_remove_refresh_token",
+      "utc"
+    ],
+    "1": [
+      "domain_errors",
+      "domain_errors_errorbody",
+      "domain_errors_errorresponse",
+      "dtos_responses",
+      "dtos_responses_successresponse",
+      "extractors_auth_make_access_token",
+      "extractors_types",
+      "extractors_types_claims",
+      "extractors_types_loginresponse",
+      "from",
+      "handlers_login_loginreq",
+      "handlers_register",
+      "handlers_register_register",
+      "handlers_register_registerrequest",
+      "models_users",
+      "models_users_role",
+      "models_users_updateprofilerequest",
+      "models_users_userresponse",
+      "repositories_user_repo_userrepository_insert_user_if_unique",
+      "repositories_user_repo_userrepository_insert_user_tx",
+      "services_auth_service",
+      "services_auth_service_authservice",
+      "services_auth_service_authservice_authenticate",
+      "services_auth_service_authservice_refresh_access_token",
+      "services_slot_service_slotservice",
+      "services_slot_service_slotservice_create_custom_slot",
+      "services_slot_service_slotservice_create_slot",
+      "services_slot_service_slotservice_delete_slot",
+      "services_slot_service_slotservice_get_slots_for_game_on_date",
+      "services_user_service",
+      "services_user_service_userservice",
+      "services_user_service_userservice_register_user",
+      "services_user_service_userservice_update_profile",
+      "string",
+      "t",
+      "utils_seed",
+      "utils_seed_ensure_admin_exists"
+    ],
+    "2": [
+      "booking_handlers_cancel_booking",
+      "booking_handlers_cancel_booking_cancel_booking_handler",
+      "booking_handlers_get_game_bookings",
+      "booking_handlers_get_game_bookings_get_game_bookings_handler",
+      "booking_handlers_initiate_booking",
+      "booking_handlers_initiate_booking_initiate_booking_handler",
+      "booking_handlers_pay_advance",
+      "booking_handlers_pay_advance_pay_advance_handler",
+      "booking_handlers_pay_full",
+      "booking_handlers_pay_full_pay_full_handler",
+      "booking_handlers_update_payment",
+      "booking_handlers_update_payment_update_payment_handler",
+      "claims",
+      "extractors_auth",
+      "game_handlers_delete_game",
+      "game_handlers_delete_game_delete_game_handler",
+      "game_handlers_get_game_by_id",
+      "game_handlers_get_game_by_id_get_game_by_id_handler",
+      "game_settings_handlers_delete_settings",
+      "game_settings_handlers_delete_settings_delete_settings_handler",
+      "intoresponse",
+      "path",
+      "slot_handlers_delete_slot",
+      "slot_handlers_delete_slot_delete_slot_handler",
+      "turf_handlers_delete_turf",
+      "turf_handlers_delete_turf_delete_turf_handler",
+      "turf_handlers_get_all_turfs",
+      "turf_handlers_get_all_turfs_get_all_turfs",
+      "user_handlers_get_profile",
+      "user_handlers_get_profile_get_profile_handler"
+    ],
+    "3": [
+      "models_turfs_turf",
+      "repositories_booking_repo_bookingrepository_find_by_game_id_enriched",
+      "repositories_booking_repo_bookingrepository_find_by_user_id_enriched",
+      "repositories_booking_repo_bookingrepository_find_enriched_internal",
+      "repositories_turf_repo",
+      "repositories_turf_repo_turfrepository",
+      "repositories_turf_repo_turfrepository_find_all",
+      "repositories_turf_repo_turfrepository_find_all_by_manager_id_tx",
+      "repositories_turf_repo_turfrepository_find_by_id",
+      "repositories_turf_repo_turfrepository_find_by_id_tx",
+      "repositories_turf_repo_turfrepository_find_by_manager_id",
+      "repositories_turf_repo_turfrepository_find_by_manager_id_tx",
+      "repositories_turf_repo_turfrepository_insert_tx",
+      "repositories_turf_repo_turfrepository_update_tx",
+      "result",
+      "services_booking_service_bookingservice_get_game_bookings",
+      "services_booking_service_bookingservice_get_user_bookings",
+      "services_turf_service",
+      "services_turf_service_turfservice",
+      "services_turf_service_turfservice_create_turf",
+      "services_turf_service_turfservice_delete_turf",
+      "services_turf_service_turfservice_get_all_turfs",
+      "services_turf_service_turfservice_get_turf_by_id",
+      "services_turf_service_turfservice_update_turf",
+      "user_handlers_get_user_bookings_bookingdetail",
+      "vec"
+    ],
+    "4": [
+      "bigdecimal",
+      "game_settings_handlers_update_settings",
+      "game_settings_handlers_update_settings_update_settings_handler",
+      "models_games",
+      "models_games_gamesettings",
+      "models_games_updategamesettingsrequest",
+      "repositories_game_settings_repo",
+      "repositories_game_settings_repo_gamesettingsrepository",
+      "repositories_game_settings_repo_gamesettingsrepository_find_all_by_game_id",
+      "repositories_game_settings_repo_gamesettingsrepository_find_by_id_tx",
+      "repositories_game_settings_repo_gamesettingsrepository_insert_tx",
+      "repositories_game_settings_repo_gamesettingsrepository_update_tx",
+      "repositories_slot_repo",
+      "repositories_user_repo",
+      "services_game_settings_service",
+      "services_game_settings_service_gamesettingsservice",
+      "services_game_settings_service_gamesettingsservice_create_settings",
+      "services_game_settings_service_gamesettingsservice_delete_settings",
+      "services_game_settings_service_gamesettingsservice_get_settings_for_game",
+      "services_game_settings_service_gamesettingsservice_update_settings",
+      "services_slot_service",
+      "statuscode"
+    ],
+    "5": [
+      "game_handlers_get_games",
+      "game_handlers_get_games_get_games_handler",
+      "game_settings_handlers_get_settings",
+      "game_settings_handlers_get_settings_get_settings_handler",
+      "services_booking_service",
+      "services_booking_service_bookingservice",
+      "services_booking_service_bookingservice_cancel_booking",
+      "services_booking_service_bookingservice_initiate_booking",
+      "services_booking_service_bookingservice_pay_advance",
+      "services_booking_service_bookingservice_pay_full",
+      "services_booking_service_bookingservice_process_gateway_payment",
+      "services_booking_service_bookingservice_update_payment",
+      "sharedstate",
+      "turf_handlers_get_turf",
+      "turf_handlers_get_turf_get_a_turf_by_id",
+      "utils_cleanup",
+      "utils_cleanup_run_cleanup_worker"
+    ],
+    "6": [
+      "models_games_game",
+      "naivetime",
+      "repositories_game_repo",
+      "repositories_game_repo_gamerepository",
+      "repositories_game_repo_gamerepository_find_all_games_by_turf_id",
+      "repositories_game_repo_gamerepository_find_by_id",
+      "repositories_game_repo_gamerepository_find_by_id_tx",
+      "repositories_game_repo_gamerepository_insert_tx",
+      "repositories_game_repo_gamerepository_update_tx",
+      "services_game_service",
+      "services_game_service_gameservice",
+      "services_game_service_gameservice_create_game",
+      "services_game_service_gameservice_delete_game",
+      "services_game_service_gameservice_get_game_by_id",
+      "services_game_service_gameservice_get_games_for_turf",
+      "services_game_service_gameservice_update_game"
+    ],
+    "7": [
+      "models_slots",
+      "models_slots_createcustomslotrequest",
+      "models_slots_createslotrequest",
+      "naivedate",
+      "query",
+      "slot_handlers_create_custom_slot",
+      "slot_handlers_create_custom_slot_create_custom_slot_handler",
+      "slot_handlers_create_slot",
+      "slot_handlers_create_slot_create_slot_handler",
+      "slot_handlers_get_slots",
+      "slot_handlers_get_slots_get_slots_handler",
+      "slot_handlers_get_slots_slotdatequery"
+    ],
+    "8": [
+      "game_handlers_update_game",
+      "game_handlers_update_game_update_game_handler",
+      "json",
+      "models_games_updategamerequest",
+      "src_main",
+      "src_main_main",
+      "src_main_ping",
+      "user_handlers_update_profile",
+      "user_handlers_update_profile_update_profile_handler",
+      "value"
+    ],
+    "9": [
+      "extractors_auth_claims",
+      "extractors_auth_claims_from_request_parts",
+      "fromrequestparts",
+      "models_users_userresponse_from",
+      "parts",
+      "rejection",
+      "s",
+      "self"
+    ],
+    "10": [
+      "models_turfs",
+      "models_turfs_createturfrequest",
+      "models_turfs_updateturfrequest",
+      "turf_handlers_create_turf",
+      "turf_handlers_create_turf_create_turf",
+      "turf_handlers_update_turf",
+      "turf_handlers_update_turf_update_turf_handler"
+    ],
+    "11": [
+      "arc",
+      "config_state",
+      "config_state_appstate",
+      "pgpool",
+      "repositories_booking_repo_bookingrepository_delete_orphaned_unpaid_bookings",
+      "repositories_slot_repo_slotrepository_reset_expired_pending_slots"
+    ],
+    "12": [
+      "cookiejar",
+      "handlers_login",
+      "handlers_login_login_handler",
+      "handlers_logout",
+      "handlers_logout_logout_handler"
+    ],
+    "13": [
+      "state",
+      "user_handlers_get_managed_turfs",
+      "user_handlers_get_managed_turfs_get_managed_turfs_handler",
+      "user_handlers_get_user_bookings",
+      "user_handlers_get_user_bookings_get_user_bookings_handler"
+    ],
+    "14": [
+      "load_tests_read_throughput",
+      "load_tests_read_throughput_options",
+      "load_tests_read_throughput_requireenv",
+      "load_tests_read_throughput_setup"
+    ],
+    "15": [
+      "game_handlers_create_game",
+      "game_handlers_create_game_create_game_handler",
+      "models_games_creategamerequest"
+    ],
+    "16": [
+      "game_settings_handlers_create_settings",
+      "game_settings_handlers_create_settings_create_settings_handler",
+      "models_games_creategamesettingsrequest"
+    ],
+    "17": [
+      "load_tests_ping_baseline",
+      "load_tests_ping_baseline_options"
+    ],
+    "18": [
+      "load_tests_slow_write",
+      "load_tests_slow_write_options"
+    ],
+    "19": [
+      "api_mod"
+    ],
+    "20": [
+      "booking_handlers_mod"
+    ],
+    "21": [
+      "config_mod"
+    ],
+    "22": [
+      "domain_mod"
+    ],
+    "23": [
+      "dtos_mod"
+    ],
+    "24": [
+      "extractors_mod"
+    ],
+    "25": [
+      "game_handlers_mod"
+    ],
+    "26": [
+      "game_settings_handlers_mod"
+    ],
+    "27": [
+      "handlers_mod"
+    ],
+    "28": [
+      "models_mod"
+    ],
+    "29": [
+      "repositories_mod"
+    ],
+    "30": [
+      "services_mod"
+    ],
+    "31": [
+      "slot_handlers_mod"
+    ],
+    "32": [
+      "turf_handlers_mod"
+    ],
+    "33": [
+      "user_handlers_mod"
+    ],
+    "34": [
+      "utils_mod"
+    ]
+  },
+  "cohesion": {
+    "0": 0.13010204081632654,
+    "1": 0.09309309309309309,
+    "2": 0.14942528735632185,
+    "3": 0.20615384615384616,
+    "4": 0.1774891774891775,
+    "5": 0.20588235294117646,
+    "6": 0.25,
+    "7": 0.24242424242424243,
+    "8": 0.24444444444444444,
+    "9": 0.2857142857142857,
+    "10": 0.38095238095238093,
+    "11": 0.4666666666666667,
+    "12": 0.6,
+    "13": 0.6,
+    "14": 0.6666666666666666,
+    "15": 1.0,
+    "16": 1.0,
+    "17": 1.0,
+    "18": 1.0,
+    "19": 1.0,
+    "20": 1.0,
+    "21": 1.0,
+    "22": 1.0,
+    "23": 1.0,
+    "24": 1.0,
+    "25": 1.0,
+    "26": 1.0,
+    "27": 1.0,
+    "28": 1.0,
+    "29": 1.0,
+    "30": 1.0,
+    "31": 1.0,
+    "32": 1.0,
+    "33": 1.0,
+    "34": 1.0
+  },
+  "gods": [
+    {
+      "id": "domain_errors_apperror",
+      "label": "AppError",
+      "degree": 149
+    },
+    {
+      "id": "models_users_role",
+      "label": "Role",
+      "degree": 30
+    },
+    {
+      "id": "models_turfs_turf",
+      "label": "Turf",
+      "degree": 19
+    },
+    {
+      "id": "models_slots_slot",
+      "label": "Slot",
+      "degree": 18
+    },
+    {
+      "id": "models_bookings_booking",
+      "label": "Booking",
+      "degree": 17
+    },
+    {
+      "id": "models_games_game",
+      "label": "Game",
+      "degree": 16
+    },
+    {
+      "id": "models_users_user",
+      "label": "User",
+      "degree": 15
+    },
+    {
+      "id": "models_games_gamesettings",
+      "label": "GameSettings",
+      "degree": 14
+    },
+    {
+      "id": "repositories_user_repo_userrepository",
+      "label": "UserRepository",
+      "degree": 14
+    },
+    {
+      "id": "repositories_slot_repo_slotrepository",
+      "label": "SlotRepository",
+      "degree": 13
+    }
+  ],
+  "surprises": [
+    {
+      "source": "make_access_token()",
+      "target": "AppError",
+      "source_files": [
+        "src/api/extractors/auth.rs",
+        "src/domain/errors.rs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "Claims",
+      "target": "Role",
+      "source_files": [
+        "src/api/extractors/types.rs",
+        "src/domain/models/users.rs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "peripheral node `Claims` unexpectedly reaches hub `Role`"
+    },
+    {
+      "source": "cancel_booking_handler()",
+      "target": "AppError",
+      "source_files": [
+        "src/api/handlers/booking_handlers/cancel_booking.rs",
+        "src/domain/errors.rs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "get_game_bookings_handler()",
+      "target": "AppError",
+      "source_files": [
+        "src/api/handlers/booking_handlers/get_game_bookings.rs",
+        "src/domain/errors.rs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    },
+    {
+      "source": "initiate_booking_handler()",
+      "target": "AppError",
+      "source_files": [
+        "src/api/handlers/booking_handlers/initiate_booking.rs",
+        "src/domain/errors.rs"
+      ],
+      "confidence": "EXTRACTED",
+      "relation": "references",
+      "why": "bridges separate communities"
+    }
+  ],
+  "tokens": {
+    "input": 0,
+    "output": 0
+  }
+}

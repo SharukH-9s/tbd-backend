@@ -5,7 +5,7 @@ use crate::domain::models::users::Role;
 use crate::repositories::game_repo::GameRepository;
 use crate::repositories::game_settings_repo::GameSettingsRepository;
 use crate::repositories::turf_repo::TurfRepository;
-use axum::http::StatusCode;
+
 use bigdecimal::BigDecimal;
 
 pub struct GameSettingsService;
@@ -22,34 +22,18 @@ impl GameSettingsService {
         base_price: BigDecimal,
         slot_duration_mins: i32,
     ) -> Result<GameSettings, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Verify the game exists
         let game = match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
         };
 
         // 2. Fetch the parent turf to verify ownership
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check: only the turf's manager or Admin may add templates
@@ -57,11 +41,7 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::SETTINGS_ACCESS_DENIED,
-                message: "You do not have permission to add settings to this game",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to add settings to this game"));
         }
 
         // 4. Insert the template
@@ -74,11 +54,7 @@ impl GameSettingsService {
         )
         .await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for settings creation",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for settings creation"))?;
 
         Ok(new_settings)
     }
@@ -90,20 +66,10 @@ impl GameSettingsService {
         game_id: i32,
     ) -> Result<Vec<GameSettings>, AppError> {
         // Verify the game exists first (gives the caller a clean 404 instead of an empty list)
-        let mut tx = state.db.acquire().await.map_err(|_| AppError {
-            code: error_codes::DATABASE_ERROR,
-            message: "Failed to acquire database connection",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.acquire().await.map_err(|_| AppError::internal(error_codes::DATABASE_ERROR, "Failed to acquire database connection"))?;
 
         match GameRepository::find_by_id_tx(&mut *tx, game_id).await? {
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
             Some(_) => {}
         }
 
@@ -122,45 +88,23 @@ impl GameSettingsService {
         base_price: Option<BigDecimal>,
         slot_duration_mins: Option<i32>,
     ) -> Result<GameSettings, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Fetch the settings template
         let existing = match GameSettingsRepository::find_by_id_tx(&mut *tx, settings_id).await? {
             Some(s) => s,
-            None => {
-                return Err(AppError {
-                    code: error_codes::SETTINGS_NOT_FOUND,
-                    message: "Game settings template not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::SETTINGS_NOT_FOUND, "Game settings template not found")),
         };
 
         // 2. Fetch the parent game → parent turf to check ownership
         let game = match GameRepository::find_by_id_tx(&mut *tx, existing.game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Parent game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Parent game not found")),
         };
 
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check
@@ -168,11 +112,7 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::SETTINGS_ACCESS_DENIED,
-                message: "You do not have permission to update these settings",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to update these settings"));
         }
 
         // 4. Merge fields — omitted fields fall back to existing values
@@ -190,11 +130,7 @@ impl GameSettingsService {
         )
         .await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for settings update",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for settings update"))?;
 
         Ok(updated)
     }
@@ -207,45 +143,23 @@ impl GameSettingsService {
         caller_id: i32,
         caller_role: Role,
     ) -> Result<(), AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         // 1. Fetch the settings template
         let existing = match GameSettingsRepository::find_by_id_tx(&mut *tx, settings_id).await? {
             Some(s) => s,
-            None => {
-                return Err(AppError {
-                    code: error_codes::SETTINGS_NOT_FOUND,
-                    message: "Game settings template not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::SETTINGS_NOT_FOUND, "Game settings template not found")),
         };
 
         // 2. Fetch parent game → parent turf for ownership check
         let game = match GameRepository::find_by_id_tx(&mut *tx, existing.game_id).await? {
             Some(g) => g,
-            None => {
-                return Err(AppError {
-                    code: error_codes::GAME_NOT_FOUND,
-                    message: "Parent game not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Parent game not found")),
         };
 
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Parent turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
         };
 
         // 3. Security check
@@ -253,20 +167,12 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::SETTINGS_ACCESS_DENIED,
-                message: "You do not have permission to delete these settings",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to delete these settings"));
         }
 
         // 4. Delete
         GameSettingsRepository::delete_tx(&mut *tx, settings_id).await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for settings deletion",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for settings deletion"))
     }
 }

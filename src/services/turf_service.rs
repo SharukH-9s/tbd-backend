@@ -3,7 +3,6 @@ use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::turfs::Turf;
 use crate::repositories::turf_repo::TurfRepository;
 use crate::repositories::user_repo::UserRepository;
-use axum::http::StatusCode;
 
 pub struct TurfService;
 
@@ -33,11 +32,7 @@ impl TurfService {
         let turf = TurfRepository::find_by_id(state, id).await?;
         match turf {
             Some(t) => Ok(t),
-            None => Err(AppError {
-                code: error_codes::TURF_NOT_FOUND,
-                message: "Turf not found",
-                status: StatusCode::NOT_FOUND,
-            }),
+            None => Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
         }
     }
 
@@ -51,11 +46,7 @@ impl TurfService {
         manager_password: Option<String>,
         manager_username: Option<String>,
     ) -> Result<Turf, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_e| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_e| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         let mut final_manager_id = creator_id;
 
@@ -64,11 +55,7 @@ impl TurfService {
 
             if let Some(user) = existing_user {
                 if manager_password.is_some() || manager_username.is_some() {
-                    return Err(AppError {
-                        code: error_codes::EMAIL_EXISTS,
-                        message: "This email is already registered. To link this existing user, please omit the manager_password and manager_username.",
-                        status: StatusCode::CONFLICT,
-                    });
+                    return Err(AppError::conflict(error_codes::EMAIL_EXISTS, "This email is already registered. To link this existing user, please omit the manager_password and manager_username."));
                 }
 
                 final_manager_id = user.id;
@@ -77,11 +64,7 @@ impl TurfService {
                     if let Some(_) =
                         TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
                     {
-                        return Err(AppError {
-                            code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                            message: "This user is already managing another turf.",
-                            status: StatusCode::CONFLICT,
-                        });
+                        return Err(AppError::conflict(error_codes::MANAGER_ALREADY_ASSIGNED, "This user is already managing another turf."));
                     }
                 }
 
@@ -94,11 +77,7 @@ impl TurfService {
             } else {
                 if let (Some(pass), Some(uname)) = (manager_password, manager_username) {
                     let hashed_password =
-                        bcrypt::hash(pass, bcrypt::DEFAULT_COST).map_err(|_| AppError {
-                            code: error_codes::HASH_FAILED,
-                            message: "Failed to hash manager password",
-                            status: StatusCode::INTERNAL_SERVER_ERROR,
-                        })?;
+                        bcrypt::hash(pass, bcrypt::DEFAULT_COST).map_err(|_| AppError::internal(error_codes::HASH_FAILED, "Failed to hash manager password"))?;
 
                     let user_data = (
                         uname,
@@ -112,11 +91,7 @@ impl TurfService {
                     println!("New user created: {:?}", new_user);
                     final_manager_id = new_user.id;
                 } else {
-                    return Err(AppError {
-                        code: error_codes::USER_DETAILS_REQUIRED,
-                        message: "This email is not registered. Please provide manager_password and manager_username to onboard them.",
-                        status: StatusCode::BAD_REQUEST,
-                    });
+                    return Err(AppError::bad_request(error_codes::USER_DETAILS_REQUIRED, "This email is not registered. Please provide manager_password and manager_username to onboard them."));
                 }
             }
         }
@@ -125,11 +100,7 @@ impl TurfService {
             TurfRepository::insert_tx(&mut *tx, final_manager_id, name, location, description)
                 .await?;
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes"))?;
 
         Ok(newly_created_turf)
     }
@@ -144,32 +115,18 @@ impl TurfService {
         description: Option<String>,
         requested_manager_id: Option<i32>,
     ) -> Result<Turf, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         let existing_turf = match TurfRepository::find_by_id_tx(&mut *tx, turf_id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
         };
 
         let is_admin = matches!(caller_role, crate::domain::models::users::Role::Admin);
         let is_owner = existing_turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "You do not have permission to update this turf",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to update this turf"));
         }
 
         let final_manager_id = if is_admin {
@@ -181,24 +138,14 @@ impl TurfService {
         if final_manager_id != existing_turf.manager_id {
             let user = match UserRepository::find_by_id_tx(&mut *tx, final_manager_id).await? {
                 Some(u) => u,
-                None => {
-                    return Err(AppError {
-                        code: error_codes::USER_NOT_FOUND,
-                        message: "The assigned manager ID does not exist",
-                        status: StatusCode::BAD_REQUEST,
-                    });
-                }
+                None => return Err(AppError::bad_request(error_codes::USER_NOT_FOUND, "The assigned manager ID does not exist")),
             };
 
             if !matches!(user.role, crate::domain::models::users::Role::Admin) {
                 if let Some(_) =
                     TurfRepository::find_by_manager_id_tx(&mut *tx, final_manager_id).await?
                 {
-                    return Err(AppError {
-                        code: error_codes::MANAGER_ALREADY_ASSIGNED,
-                        message: "The requested manager is already assigned to another turf.",
-                        status: StatusCode::CONFLICT,
-                    });
+                    return Err(AppError::conflict(error_codes::MANAGER_ALREADY_ASSIGNED, "The requested manager is already assigned to another turf."));
                 }
             }
 
@@ -244,11 +191,7 @@ impl TurfService {
             }
         }
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for turf update",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for turf update"))?;
 
         Ok(updated_turf)
     }
@@ -260,28 +203,14 @@ impl TurfService {
     ) -> Result<(), AppError> {
         // Only Admin can delete turfs
         if !matches!(caller_role, crate::domain::models::users::Role::Admin) {
-            return Err(AppError {
-                code: error_codes::FORBIDDEN,
-                message: "Only administrators can delete turfs",
-                status: StatusCode::FORBIDDEN,
-            });
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only administrators can delete turfs"));
         }
 
-        let mut tx = state.db.begin().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_START_FAILED,
-            message: "Failed to start database transaction",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 
         let existing_turf = match TurfRepository::find_by_id_tx(&mut *tx, id).await? {
             Some(t) => t,
-            None => {
-                return Err(AppError {
-                    code: error_codes::TURF_NOT_FOUND,
-                    message: "Turf not found",
-                    status: StatusCode::NOT_FOUND,
-                });
-            }
+            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
         };
 
         let manager_id = existing_turf.manager_id;
@@ -307,10 +236,6 @@ impl TurfService {
             }
         }
 
-        tx.commit().await.map_err(|_| AppError {
-            code: error_codes::TRANSACTION_COMMIT_FAILED,
-            message: "Failed to finalize database changes for turf deletion",
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-        }) // returns Result<(), AppError>
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for turf deletion")) // returns Result<(), AppError>
     }
 }

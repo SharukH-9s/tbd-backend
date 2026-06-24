@@ -1,3 +1,4 @@
+use crate::{db_conn_err, db_err};
 use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::bookings::Booking;
 use axum::http::StatusCode;
@@ -25,17 +26,7 @@ impl BookingRepository {
         .bind(user_id)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!(
-                "Database error in user_has_pending_booking_tx (bookings): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to check for existing pending bookings",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        .map_err(db_err!("Failed to check for existing pending bookings"))?;
 
         Ok(row.0 >= 2) // block if user already holds 2 or more pending slots
     }
@@ -61,14 +52,7 @@ impl BookingRepository {
         .bind(contact_phone)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in insert_tx (bookings): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to create booking record",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to create booking record"))
     }
 
     /// Inserts a new offline booking record inside a transaction.
@@ -89,14 +73,7 @@ impl BookingRepository {
         .bind(contact_phone)
         .fetch_one(executor)
         .await
-        .map_err(|e| {
-            eprintln!("Database error in insert_offline_tx (bookings): {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to record offline booking",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to record offline booking"))
     }
 
     /// Fetches a single booking by ID inside a transaction.
@@ -108,14 +85,7 @@ impl BookingRepository {
             .bind(booking_id)
             .fetch_optional(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_by_id_tx (bookings): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch booking from database",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })
+            .map_err(db_err!("Failed to fetch booking from database"))
     }
 
     /// Updates payment_status for a booking inside a transaction.
@@ -156,14 +126,9 @@ impl BookingRepository {
         }
 
         // execution of the query and handling errors
-        q.fetch_one(executor).await.map_err(|e| {
-            eprintln!("Database error in update_payment_status_tx: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to update payment status",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        q.fetch_one(executor)
+            .await
+            .map_err(db_err!("Failed to update payment status"))
     }
 
     pub async fn mark_fully_paid_by_manager_tx(
@@ -201,18 +166,11 @@ impl BookingRepository {
             .bind(id)
             .fetch_all(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in find_enriched_internal: {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to fetch bookings",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })?;
+            .map_err(db_err!("Failed to fetch bookings"))?;
 
         let booking_details: Vec<BookingDetail> = rows
             .iter()
-            .map(|row| {
+            .map(|row: &sqlx::postgres::PgRow| {
                 let total_price: BigDecimal = row.get("final_price");
                 let payment_status: String = row.get("payment_status");
 
@@ -262,14 +220,7 @@ impl BookingRepository {
         user_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
-        let mut conn = state.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
         Self::find_enriched_internal(&mut *conn, "b.user_id", user_id).await
     }
 
@@ -289,17 +240,7 @@ impl BookingRepository {
         .execute(db)
         .await
         .map(|result| result.rows_affected())
-        .map_err(|e| {
-            eprintln!(
-                "Database error in delete_orphaned_unpaid_bookings (bookings): {}",
-                e
-            );
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Failed to clean up orphaned booking records",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })
+        .map_err(db_err!("Failed to clean up orphaned booking records"))
     }
 
     /// Deletes a booking by its own ID inside a transaction.
@@ -312,14 +253,7 @@ impl BookingRepository {
             .bind(booking_id)
             .execute(executor)
             .await
-            .map_err(|e| {
-                eprintln!("Database error in delete_by_id_tx (bookings): {}", e);
-                AppError {
-                    code: error_codes::DATABASE_ERROR,
-                    message: "Failed to delete booking",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                }
-            })?;
+            .map_err(db_err!("Failed to delete booking"))?;
         Ok(())
     }
 
@@ -330,14 +264,7 @@ impl BookingRepository {
         game_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
-        let mut conn = state.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
-            AppError {
-                code: error_codes::DATABASE_ERROR,
-                message: "Internal server error",
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-            }
-        })?;
+        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
         Self::find_enriched_internal(&mut *conn, "g.id", game_id).await
     }
 }
