@@ -6,7 +6,7 @@ mod services;
 
 use crate::config::state::{AppState, SharedState};
 use axum::{
-    Json, Router,
+    Json, Router, middleware,
     routing::{get, post},
 };
 use dotenvy::dotenv;
@@ -15,12 +15,7 @@ use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
-use std::time::Duration;
-use tower_governor::{
-    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
-};
 use tower_http::cors::CorsLayer;
-use tower_http::services::ServeDir;
 
 async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
@@ -31,6 +26,7 @@ async fn main() {
     dotenv().ok(); // This line looks for a file named .env in the project's root folder, It loads "Environment Variables" from a text file into the computer's temporary memory while the app is running.
     let secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+    let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
 
     // Connect to PostgreSQL and create a connection pool.
     // PgPoolOptions lets us configure the pool before connecting.
@@ -44,12 +40,24 @@ async fn main() {
         .expect("Failed to connect to the database. Check DATABASE_URL in .env");
 
     println!("Connected to database");
+
+    // Connect to Render Key Value (Redis) and get a multiplexed async connection.
+    // A multiplexed connection can be cloned cheaply across handlers — no Mutex needed.
+    let redis_client = redis::Client::open(redis_url)
+        .expect("Invalid REDIS_URL — check the format in your .env file");
+    let redis_conn = redis_client
+        .get_multiplexed_async_connection()
+        .await
+        .expect("Failed to connect to Redis. Ensure REDIS_URL is reachable.");
+    println!("Connected to Redis");
+
     let shared_state: SharedState = Arc::new(AppState {
         db,
         jwt_secret: Arc::new(secret.into_bytes()),
+        redis_conn,
     });
 
-    // Professional Bootstrap: Ensure the root Administrator exists on startup
+    // Ensure the root Administrator exists on startup
     api::utils::seed::ensure_admin_exists(&shared_state).await;
 
     // Background worker: reset expired Pending slots and delete orphaned Unpaid bookings.
@@ -75,41 +83,12 @@ async fn main() {
             http::header::AUTHORIZATION,
             http::header::ACCEPT,
         ])
-        .allow_credentials(true); // This tells the browser: "Yes, I am expecting requests from Vercel to include cookies/credentials."
+        .allow_credentials(true);
 
-    // Rate Limiting
-    // Tier 1 (STRICT) — auth routes: 3 requests per 10 seconds, burst of 3.
-    // Protects against brute-force and credential stuffing attacks.
-    let auth_governor_conf = GovernorConfigBuilder::default() // opening a blank settings template with basic default values that we are about to customize
-        .key_extractor(SmartIpKeyExtractor) // we are telling the system: "Look at the incoming network request, find the user's real IP address, and give them their own individual bucket
-        .per_millisecond(3333) // This sets how fast tokens drop back into the bucket
-        .burst_size(3) // Allow at most 3 back-to-back attempts. a user can make a maximum of 3 requests back-to-back instantly if their bucket is completely full
-        .use_headers() // Adds X-RateLimit-* headers for frontend debugging. frontend team inspects the network response headers, they will see hidden values like X-RateLimit-Limit: 3 and X-RateLimit-Remaining: 2
-        .finish() // builds the final configuration object
-        .unwrap();
-
-    // Tier 2 (RELAXED) — all other API routes: 10 requests/s, burst of 20.
-    // Prevents DB pool saturation without impacting normal SPA usage.
-    let api_governor_conf = GovernorConfigBuilder::default()
-        .key_extractor(SmartIpKeyExtractor)
-        .per_millisecond(100) // Replenish 10 tokens per second (1 token per 100ms)
-        .burst_size(20) // Allow a burst of 20 for concurrent page-load requests
-        .use_headers()
-        .finish()
-        .unwrap();
-
-    // Background thread: cleans up stale IP entries from the in-memory governor
-    // store every 60 seconds to prevent unbounded memory growth over time.
-    let auth_limiter = auth_governor_conf.limiter().clone(); // grabbing a direct handle to the internal tracking storage (the list of all IP buckets)
-    let api_limiter = api_governor_conf.limiter().clone();
-    std::thread::spawn(move || {
-        // boots up a completely separate Background Thread that runs parallel to your main web server. keyword move tells Rust to transfer the cloned auth_limiter and api_limiter handles into this new thread
-        loop {
-            std::thread::sleep(Duration::from_secs(60)); // sleeps for 1 minute between cleanup cycles.
-            auth_limiter.retain_recent(); // the governor walks through its entire database of tracked IP addresses and checks how long ago each IP was seen. if the last request from that IP was more than 10 minutes ago (the default retention period), it throws that IP's entire history away
-            api_limiter.retain_recent();
-        }
-    });
+    // Rate Limiting (Redis-backed, distributed)
+    // Tier 1 (STRICT)  — auth routes : max 3 requests per 10-second window per IP
+    // Tier 2 (RELAXED) — api routes  : max 100 requests per 10-second window per IP
+    // Implemented as custom Axum middleware using an atomic Lua script (Fixed Window).
 
     //Router Assembly
     let auth_routes = Router::new()
@@ -120,7 +99,10 @@ async fn main() {
             post(api::handlers::refresh_token::refresh_handler),
         )
         .route("/logout", post(api::handlers::logout::logout_handler))
-        .layer(GovernorLayer::new(auth_governor_conf));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rate_limiter::auth_rate_limiter,
+        ));
 
     let api_routes = Router::new()
         .route(
@@ -227,7 +209,10 @@ async fn main() {
                 api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
             ),
         )
-        .layer(GovernorLayer::new(api_governor_conf));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rate_limiter::api_rate_limiter,
+        ));
 
     // Merge all route groups
     let final_router = Router::new()
@@ -235,19 +220,20 @@ async fn main() {
         .route("/ping", get(ping))
         .merge(auth_routes)
         .merge(api_routes)
-        .fallback_service(ServeDir::new("frontend"))
         .layer(cors)
         .with_state(shared_state);
 
-    let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string());
-    let address = format!("0.0.0.0:{}", port);
-    println!("🚀 Server starting on {}", address);
+    let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string()); // PORT will be set by the deployer
+    let address = format!("0.0.0.0:{}", port); // 0.0.0.0 means "listen on all available network interfaces."
+    println!("Server starting on {}", address);
 
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
 
     axum::serve(
         listener,
-        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(), // The SmartIpKeyExtractor needs an IP address to figure out which user’s bucket to penalize. so this line provides that ip address to the extractor.
+        // ConnectInfo<SocketAddr> is extracted by our custom rate limiter middleware
+        // to determine the fallback client IP when no proxy headers are present.
+        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .await
     .unwrap();
