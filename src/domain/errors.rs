@@ -41,6 +41,7 @@ pub mod error_codes {
     pub const EXPIRED_TOKEN: &str = "EXPIRED_TOKEN";
     pub const REVOKED_TOKEN: &str = "REVOKED_TOKEN"; // JWT has been blacklisted via Redis (user logged out)
     pub const JWT_DECODE_FAILED: &str = "JWT_DECODE_FAILED";
+    pub const RATE_LIMIT_EXCEEDED: &str = "RATE_LIMIT_EXCEEDED"; // Too many requests in the rate-limit window
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
 
     // Turf & Manager specific

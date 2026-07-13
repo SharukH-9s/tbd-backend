@@ -95,7 +95,7 @@ where
         let is_blacklisted: Result<bool, _> = redis::cmd("EXISTS")
             .arg(&blacklist_key)
             .query_async(&mut redis_conn)
-            .await;
+            .await; // returns bool if the key exists in Redis, 1 if true, 0 if false or error.
 
         match is_blacklisted {
             Ok(true) => {

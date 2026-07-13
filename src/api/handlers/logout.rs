@@ -2,10 +2,10 @@ use crate::config::state::SharedState;
 use crate::domain::dtos::responses::SuccessResponse;
 use crate::services::auth_service::AuthService;
 
+use axum::http::StatusCode;
 use axum::{Json, extract::State, http::request::Parts, response::IntoResponse};
 use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
-use axum::http::StatusCode;
 use time;
 
 // Removes the refresh token from the database, clears the cookie from the browser,
@@ -33,16 +33,17 @@ pub async fn logout_handler(
                     let remaining_ttl = claims.exp - now;
 
                     if remaining_ttl > 0 {
+                        // if the remaining ttl is less than 0, the token is already expired, so we don't need to blacklist it.
                         let blacklist_key = format!("blacklist:jti:{}", claims.jti);
                         let mut redis_conn = database.redis_conn.clone();
 
                         // SET blacklist:jti:<jti> "1" EX <ttl>
                         // The key auto-expires when the token would have expired naturally.
                         let result: Result<(), redis::RedisError> = redis::cmd("SET")
-                            .arg(&blacklist_key)
-                            .arg("1")
-                            .arg("EX")
-                            .arg(remaining_ttl)
+                            .arg(&blacklist_key) // key name
+                            .arg("1") // value
+                            .arg("EX") // expire
+                            .arg(remaining_ttl) // ttl
                             .query_async(&mut redis_conn)
                             .await;
 

@@ -1,4 +1,5 @@
 use axum::{
+    Json,
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::Next,
@@ -9,6 +10,7 @@ use std::net::SocketAddr;
 
 use crate::api::extractors::types::Claims;
 use crate::config::state::SharedState;
+use crate::domain::errors::{ErrorBody, ErrorResponse, error_codes};
 
 // Lua script for an atomic Fixed Window rate limiter.
 // Returns the current count after increment.
@@ -126,6 +128,12 @@ pub async fn auth_rate_limiter(
                 max = MAX_REQUESTS,
                 "Auth rate limit exceeded"
             );
+            let body = ErrorResponse {
+                error: ErrorBody {
+                    code: error_codes::RATE_LIMIT_EXCEEDED.to_string(),
+                    message: "Too many requests. Please wait before trying again.".to_string(),
+                },
+            };
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 [
@@ -133,7 +141,7 @@ pub async fn auth_rate_limiter(
                     ("X-RateLimit-Remaining", "0".to_string()),
                     ("Retry-After", WINDOW_SECS.to_string()),
                 ],
-                "Too many requests. Please wait before trying again.",
+                Json(body),
             )
                 .into_response()
         }
@@ -207,6 +215,12 @@ pub async fn api_rate_limiter(
                 max = MAX_REQUESTS,
                 "API rate limit exceeded"
             );
+            let body = ErrorResponse {
+                error: ErrorBody {
+                    code: error_codes::RATE_LIMIT_EXCEEDED.to_string(),
+                    message: "Too many requests. Please slow down.".to_string(),
+                },
+            };
             (
                 StatusCode::TOO_MANY_REQUESTS,
                 [
@@ -214,7 +228,7 @@ pub async fn api_rate_limiter(
                     ("X-RateLimit-Remaining", "0".to_string()),
                     ("Retry-After", WINDOW_SECS.to_string()),
                 ],
-                "Too many requests. Please slow down.",
+                Json(body),
             )
                 .into_response()
         }
