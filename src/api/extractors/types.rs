@@ -6,6 +6,7 @@ pub struct Claims {
     pub role: crate::domain::models::users::Role, // User Role
     pub exp: i64,                                 // Expiration timestamp (seconds)
     pub iat: i64,                                 // Issued at timestamp
+    pub jti: String,                              // JWT ID — unique per token, used for Redis blacklist
 }
 
 #[derive(Serialize)]

@@ -39,6 +39,7 @@ pub mod error_codes {
     pub const MISSING_TOKEN: &str = "MISSING_TOKEN";
     pub const INVALID_TOKEN: &str = "INVALID_TOKEN";
     pub const EXPIRED_TOKEN: &str = "EXPIRED_TOKEN";
+    pub const REVOKED_TOKEN: &str = "REVOKED_TOKEN"; // JWT has been blacklisted via Redis (user logged out)
     pub const JWT_DECODE_FAILED: &str = "JWT_DECODE_FAILED";
     pub const DATABASE_ERROR: &str = "DATABASE_ERROR";
 

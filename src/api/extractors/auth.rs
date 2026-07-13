@@ -9,6 +9,7 @@ use super::types::Claims;
 use crate::config::state::SharedState;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use uuid::Uuid;
 
 // the Extractor Implementation
 impl<S> FromRequestParts<S> for Claims
@@ -83,7 +84,40 @@ where
                 }
             }
         };
-        Ok(token_data.claims)
+
+        let claims: Claims = token_data.claims;
+
+        // Check Redis blacklist for this token's jti.
+        // If the key exists, the token has been revoked (user logged out).
+        // Fail-Open: if Redis is down, we allow the request through to avoid an outage.
+        let blacklist_key = format!("blacklist:jti:{}", claims.jti);
+        let mut redis_conn = state.redis_conn.clone();
+        let is_blacklisted: Result<bool, _> = redis::cmd("EXISTS")
+            .arg(&blacklist_key)
+            .query_async(&mut redis_conn)
+            .await;
+
+        match is_blacklisted {
+            Ok(true) => {
+                return Err(AppError {
+                    code: error_codes::REVOKED_TOKEN,
+                    message: "Token has been revoked",
+                    status: StatusCode::UNAUTHORIZED,
+                }
+                .into_response());
+            }
+            Ok(false) => {} // Token is valid, proceed
+            Err(e) => {
+                // Fail-Open: Redis is down — log and allow through
+                tracing::error!(
+                    error = %e,
+                    jti = %claims.jti,
+                    "Redis unavailable during blacklist check — failing open"
+                );
+            }
+        }
+
+        Ok(claims)
     }
 }
 
@@ -101,6 +135,7 @@ pub fn make_access_token(
         role,
         iat: now.timestamp(),
         exp: (now + Duration::minutes(15)).timestamp(),
+        jti: Uuid::new_v4().to_string(), // Unique ID for this token — used for Redis blacklist on logout
     };
     encode(
         &Header::default(),
