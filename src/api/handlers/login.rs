@@ -29,7 +29,7 @@ pub async fn login_handler(
         .path("/")
         .http_only(true)
         .same_site(SameSite::None) // Always use None for cross-origin/cross-port requests
-        .secure(is_production) // Must be true for SameSite::None (Production/HTTPS), false for HTTP (Local Dev)
+        .secure(is_production)
         .max_age(time::Duration::days(7))
         .build();
 

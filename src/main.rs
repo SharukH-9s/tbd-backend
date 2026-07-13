@@ -7,6 +7,7 @@ mod services;
 use crate::config::state::{AppState, SharedState};
 use axum::{
     Json, Router, middleware,
+    response::IntoResponse,
     routing::{get, post},
 };
 use dotenvy::dotenv;
@@ -19,6 +20,34 @@ use tower_http::cors::CorsLayer;
 
 async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
+}
+
+/// Deep health check handler.
+/// Runs `SELECT 1` against the database to prove the connection pool is alive.
+/// Returns `200 OK` if healthy, or `503 Service Unavailable` if the DB is unreachable or saturated.
+/// Load balancers (e.g., Render) should be configured to poll `GET /health` and
+/// remove this instance from the rotation when a non-2xx response is received.
+async fn health_check(
+    axum::extract::State(state): axum::extract::State<SharedState>,
+) -> axum::response::Response {
+    match sqlx::query("SELECT 1")
+        .execute(&state.db)
+        .await
+    {
+        Ok(_) => (
+            axum::http::StatusCode::OK,
+            Json(json!({ "status": "healthy", "database": "reachable" })),
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "Health check failed — database unreachable");
+            (
+                axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({ "status": "unhealthy", "database": "unreachable" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 #[tokio::main]
@@ -100,8 +129,9 @@ async fn main() {
         )
         .route("/logout", post(api::handlers::logout::logout_handler))
         .layer(middleware::from_fn_with_state(
-            shared_state.clone(),
-            api::middleware::rate_limiter::auth_rate_limiter,
+            // Applies a middleware to a router. The middleware is a function that takes the state and the request as arguments and returns a response.
+            shared_state.clone(), // We clone the shared state to give the middleware its own reference to it.
+            api::middleware::rate_limiter::auth_rate_limiter, // Passes the incoming Request directly into the auth_rate_limiter function
         ));
 
     let api_routes = Router::new()
@@ -216,7 +246,7 @@ async fn main() {
 
     // Merge all route groups
     let final_router = Router::new()
-        .route("/health", get(|| async { "OK" }))
+        .route("/health", get(health_check))
         .route("/ping", get(ping))
         .merge(auth_routes)
         .merge(api_routes)
@@ -232,8 +262,7 @@ async fn main() {
     axum::serve(
         listener,
         // ConnectInfo<SocketAddr> is extracted by our custom rate limiter middleware
-        // to determine the fallback client IP when no proxy headers are present.
-        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(), // if run locally itll be the the raw TCP connection's remote address, if deployed on a platform that uses a reverse proxy (like Render, Cloudflare, or Nginx), the socketaddress will be set by the load balancer
     )
     .await
     .unwrap();

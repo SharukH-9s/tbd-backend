@@ -30,9 +30,14 @@ return current
 /// Extracts the true client IP, respecting Render's load balancer headers.
 /// Falls back to the raw socket address if no proxy header is present.
 fn extract_ip(req: &Request, socket_addr: &SocketAddr) -> String {
-    // X-Forwarded-For is the de-facto standard set by Render's load balancer.
-    // We take the *first* (leftmost) entry as it represents the original client.
+    // X-Forwarded-For Header Check (Primary Proxy Method)
+    // Reverse proxies and load balancers (such as Render, Cloudflare, Nginx, or AWS ALB) append client IPs to this header.
+    // So we check, if the HTTP request contains the X-Forwarded-For header.
+    // If present and valid UTF-8, we split the value by commas (val.split(',')).
+    // Since the value can be a chain of IPs representing each hop (e.g., client_ip, proxy_1_ip, proxy_2_ip), the leftmost (first) IP is always the original client.
+    // So we extract the first IP, trim any whitespace, and return it
     if let Some(forwarded_for) = req.headers().get("X-Forwarded-For") {
+        // forwared_for is the header value
         if let Ok(val) = forwarded_for.to_str() {
             if let Some(first_ip) = val.split(',').next() {
                 return first_ip.trim().to_string();
@@ -40,7 +45,10 @@ fn extract_ip(req: &Request, socket_addr: &SocketAddr) -> String {
         }
     }
 
-    // X-Real-IP is a simpler single-value alternative used by some proxies.
+    // X-Real-IP Header Check (Secondary Proxy Method)
+    // Some simpler reverse proxies or configurations only set X-Real-IP instead of a full chain in X-Forwarded-For
+    // If X-Forwarded-For is not present, it checks for the X-Real-IP header.
+    // If present and valid UTF-8, it trims any leading/trailing whitespace and returns it.
     if let Some(real_ip) = req.headers().get("X-Real-IP") {
         if let Ok(val) = real_ip.to_str() {
             return val.trim().to_string();
@@ -48,6 +56,9 @@ fn extract_ip(req: &Request, socket_addr: &SocketAddr) -> String {
     }
 
     // Fallback: use the raw TCP connection's remote address.
+    // For local development or cases where traffic is hitting the server directly without a reverse proxy, no headers will be set.
+    // It falls back to the physical SocketAddr (socket_addr) of the incoming TCP connection.
+    // It extracts just the IP portion, discarding the port number to avoid treating the same IP on different source ports as distinct clients.
     socket_addr.ip().to_string()
 }
 
@@ -87,29 +98,28 @@ async fn check_rate_limit(
 }
 
 /// **Auth Rate Limiter** — Strict tier for authentication routes.
-///
 /// Limits: 3 requests per 10-second window per IP.
 /// Auth routes (/login, /register, etc.) are always rate-limited by IP because
 /// the user is unauthenticated by definition at this point in the request.
-///
 /// **Fail-Open**: If Redis is unreachable, the request is allowed through and
 /// the error is logged. This keeps the API online even if Redis has a blip.
 pub async fn auth_rate_limiter(
     State(state): State<SharedState>,
-    ConnectInfo(socket_addr): ConnectInfo<SocketAddr>,
-    req: Request,
-    next: Next,
+    ConnectInfo(socket_addr): ConnectInfo<SocketAddr>, // Extract user's physical IP address and port, provided by the load balancer.
+    req: Request,                                      // The actual HTTP data (headers, body, URL)
+    next: Next, // A representation of the next layer in the pipeline. If we allow the request to pass, we call next.run(req) to send it to the next layer.
 ) -> Response {
-    const WINDOW_SECS: u64 = 10;
-    const MAX_REQUESTS: u64 = 3;
+    const WINDOW_SECS: u64 = 10; // duration of the window in seconds
+    const MAX_REQUESTS: u64 = 3; // maximum number of requests allowed in the window
 
     let ip = extract_ip(&req, &socket_addr);
-    let key = format!("rl:auth:ip:{}", ip);
+    let key = format!("rl:auth:ip:{}", ip); // rl:auth:ip: is the prefix for the rate limit key in Redis,ip is the user's IP address
 
     let mut conn = state.redis_conn.clone();
 
     match check_rate_limit(&mut conn, &key, WINDOW_SECS, MAX_REQUESTS).await {
         Ok(count) if count > MAX_REQUESTS => {
+            // used match guard
             tracing::warn!(
                 ip = %ip,
                 count = count,
@@ -129,7 +139,7 @@ pub async fn auth_rate_limiter(
         }
         Ok(count) => {
             let remaining = MAX_REQUESTS.saturating_sub(count);
-            let mut response = next.run(req).await;
+            let mut response = next.run(req).await; // pass the HTTP request downstream. If there are no other middlewares in the way, it goes straight to the target handler
             response.headers_mut().insert(
                 "X-RateLimit-Limit",
                 MAX_REQUESTS.to_string().parse().unwrap(),
@@ -141,8 +151,7 @@ pub async fn auth_rate_limiter(
             response
         }
         Err(err) => {
-            // Fail-Open: log the Redis error but allow the request through.
-            // This ensures the API stays available even during Redis downtime.
+            // Fail-Open: log the Redis error but allow the request through. This ensures the API stays available even during Redis downtime.
             tracing::error!(
                 error = %err,
                 ip = %ip,
