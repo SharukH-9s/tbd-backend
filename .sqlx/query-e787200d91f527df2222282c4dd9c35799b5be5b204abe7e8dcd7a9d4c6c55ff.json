@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time\n             FROM bookings WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "slot_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "contact_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "contact_phone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "payment_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "booking_time",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "e787200d91f527df2222282c4dd9c35799b5be5b204abe7e8dcd7a9d4c6c55ff"
+}

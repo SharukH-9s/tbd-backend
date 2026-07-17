@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.id, t.manager_id, t.name, t.location, t.description,\n                    t.created_at, t.updated_at,\n                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone\n             FROM turfs t\n             LEFT JOIN users u ON t.manager_id = u.id\n             WHERE t.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "manager_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "manager_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "manager_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "manager_phone",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "87e1f1f78cc6b5933052a465d31b04b2143cff04ec243d8ebb95769a35e27816"
+}

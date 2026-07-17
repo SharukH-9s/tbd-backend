@@ -3,7 +3,6 @@ use crate::config::state::SharedState;
 use crate::domain::errors::AppError;
 use crate::domain::models::games::GameSettings;
 use bigdecimal::BigDecimal;
-use sqlx::query_as;
 
 pub struct GameSettingsRepository;
 
@@ -16,15 +15,16 @@ impl GameSettingsRepository {
         base_price: BigDecimal,
         slot_duration_mins: i32,
     ) -> Result<GameSettings, AppError> {
-        query_as::<_, GameSettings>(
+        sqlx::query_as!(
+            GameSettings,
             "INSERT INTO game_settings (game_id, label, base_price, slot_duration_mins)
              VALUES ($1, $2, $3, $4)
-             RETURNING *",
+             RETURNING id, game_id, label, base_price, slot_duration_mins, created_at",
+            game_id,
+            label,
+            base_price,
+            slot_duration_mins,
         )
-        .bind(game_id)
-        .bind(label)
-        .bind(base_price)
-        .bind(slot_duration_mins)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to insert game settings into database")) // Result<GameSettings, AppError>
@@ -35,10 +35,12 @@ impl GameSettingsRepository {
         state: &SharedState,
         game_id: i32,
     ) -> Result<Vec<GameSettings>, AppError> {
-        query_as::<_, GameSettings>(
-            "SELECT * FROM game_settings WHERE game_id = $1 ORDER BY id ASC",
+        sqlx::query_as!(
+            GameSettings,
+            "SELECT id, game_id, label, base_price, slot_duration_mins, created_at
+             FROM game_settings WHERE game_id = $1 ORDER BY id ASC",
+            game_id,
         )
-        .bind(game_id)
         .fetch_all(&state.db)
         .await
         .map_err(db_err!("Failed to fetch game settings from database")) // Result<Vec<GameSettings>, AppError>
@@ -49,11 +51,15 @@ impl GameSettingsRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<Option<GameSettings>, AppError> {
-        query_as::<_, GameSettings>("SELECT * FROM game_settings WHERE id = $1")
-            .bind(id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch game settings from database (tx)")) // Result<Option<GameSettings>, AppError>
+        sqlx::query_as!(
+            GameSettings,
+            "SELECT id, game_id, label, base_price, slot_duration_mins, created_at
+             FROM game_settings WHERE id = $1",
+            id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch game settings from database (tx)")) // Result<Option<GameSettings>, AppError>
     }
 
     /// Update an existing settings template (inside a transaction).
@@ -64,16 +70,17 @@ impl GameSettingsRepository {
         base_price: BigDecimal,
         slot_duration_mins: i32,
     ) -> Result<GameSettings, AppError> {
-        query_as::<_, GameSettings>(
+        sqlx::query_as!(
+            GameSettings,
             "UPDATE game_settings
              SET label = $1, base_price = $2, slot_duration_mins = $3
              WHERE id = $4
-             RETURNING *",
+             RETURNING id, game_id, label, base_price, slot_duration_mins, created_at",
+            label,
+            base_price,
+            slot_duration_mins,
+            id,
         )
-        .bind(label)
-        .bind(base_price)
-        .bind(slot_duration_mins)
-        .bind(id)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to update game settings in database")) // Result<GameSettings, AppError>
@@ -86,8 +93,7 @@ impl GameSettingsRepository {
         id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
         use crate::domain::errors::error_codes;
-        sqlx::query("DELETE FROM game_settings WHERE id = $1")
-            .bind(id)
+        sqlx::query!("DELETE FROM game_settings WHERE id = $1", id)
             .execute(executor)
             .await
             .map_err(|e| {

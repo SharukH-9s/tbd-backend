@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO game_settings (game_id, label, base_price, slot_duration_mins)\n             VALUES ($1, $2, $3, $4)\n             RETURNING id, game_id, label, base_price, slot_duration_mins, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "game_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "label",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "base_price",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 4,
+        "name": "slot_duration_mins",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Numeric",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "90ff9566a55a51eaba5a969f71a119136f496d724a6e1d63b7744b4368bc0d06"
+}

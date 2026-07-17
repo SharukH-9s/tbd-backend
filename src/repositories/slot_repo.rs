@@ -4,7 +4,6 @@ use crate::domain::errors::AppError;
 use crate::domain::models::slots::Slot;
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
-use sqlx::query_as;
 
 pub struct SlotRepository;
 
@@ -18,23 +17,22 @@ impl SlotRepository {
         business_day_start: DateTime<Utc>, // e.g. 2026-04-10 01:00 UTC (07:00 Dhaka)
         business_day_end: DateTime<Utc>,   // e.g. 2026-04-10 19:00 UTC (01:00 Dhaka next day)
     ) -> Result<Option<DateTime<Utc>>, AppError> {
-        // MAX(end_time) returns a single nullable row — None means no slots exist yet.
-        let row: Option<(Option<DateTime<Utc>>,)> = sqlx::query_as(
+        // query_scalar! returns the first column of the first row directly.
+        // MAX(end_time) always returns exactly one row, but the value can be NULL when no
+        // slots exist in the window — hence the return type is Option<DateTime<Utc>>.
+        sqlx::query_scalar!(
             "SELECT MAX(end_time)
              FROM slots
              WHERE game_id = $1
                AND start_time >= $2
                AND start_time < $3",
+            game_id,
+            business_day_start,
+            business_day_end,
         )
-        .bind(game_id)
-        .bind(business_day_start)
-        .bind(business_day_end)
-        .fetch_optional(executor) // producing Result<Option<RowType>, sqlx::Error>
+        .fetch_one(executor)
         .await
-        .map_err(db_err!("Failed to calculate next slot start time"))?; // unwraps the Result to Option<(Option<DateTime<Utc>>,)> one option is from fetch_optional and the other is from MAX()
-
-        // Unwrap the outer Option (no row at all) and inner Option (MAX of an empty set = NULL)
-        Ok(row.and_then(|(max_time,)| max_time))
+        .map_err(db_err!("Failed to calculate next slot start time"))
     }
 
     /// Fetches all slots for a game within a business day window, ordered by start_time.
@@ -45,17 +43,19 @@ impl SlotRepository {
         business_day_start: DateTime<Utc>,
         business_day_end: DateTime<Utc>,
     ) -> Result<Vec<Slot>, AppError> {
-        query_as::<_, Slot>(
-            "SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at
+        sqlx::query_as!(
+            Slot,
+            "SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status, pending_until, created_at
              FROM slots
              WHERE game_id = $1
                AND start_time >= $2
                AND start_time < $3
              ORDER BY start_time ASC",
+            game_id,
+            business_day_start,
+            business_day_end,
         )
-        .bind(game_id)
-        .bind(business_day_start)
-        .bind(business_day_end)
         .fetch_all(&state.db)
         .await
         .map_err(db_err!("Failed to fetch slots from database")) // Result<Vec<Slot>, AppError>
@@ -70,16 +70,18 @@ impl SlotRepository {
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> Result<Vec<Slot>, AppError> {
-        query_as::<_, Slot>(
-            "SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at
+        sqlx::query_as!(
+            Slot,
+            "SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status, pending_until, created_at
              FROM slots
              WHERE game_id = $1
                AND start_time < $2
                AND end_time > $3",
+            game_id,
+            end_time,
+            start_time,
         )
-        .bind(game_id)
-        .bind(end_time)
-        .bind(start_time)
         .fetch_all(executor)
         .await
         .map_err(db_err!("Failed to check for slot overlaps")) // Result<Vec<Slot>, AppError>
@@ -98,18 +100,20 @@ impl SlotRepository {
         final_price: BigDecimal,
         status: &str,
     ) -> Result<Slot, AppError> {
-        query_as::<_, Slot>(
+        sqlx::query_as!(
+            Slot,
             "INSERT INTO slots (game_id, settings_id, label, start_time, end_time, final_price, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
-             RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
+             RETURNING id, game_id, settings_id, label, start_time, end_time,
+                       final_price, status, pending_until, created_at",
+            game_id,
+            settings_id,
+            label,
+            start_time,
+            end_time,
+            final_price,
+            status,
         )
-        .bind(game_id)
-        .bind(settings_id)
-        .bind(label)
-        .bind(start_time)
-        .bind(end_time)
-        .bind(final_price)
-        .bind(status)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to create slot in database")) // Result<Slot, AppError>
@@ -121,11 +125,16 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<Option<Slot>, AppError> {
-        query_as::<_, Slot>("SELECT id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at FROM slots WHERE id = $1")
-            .bind(slot_id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch slot from database")) // Result<Option<Slot>, AppError>
+        sqlx::query_as!(
+            Slot,
+            "SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status, pending_until, created_at
+             FROM slots WHERE id = $1",
+            slot_id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch slot from database")) // Result<Option<Slot>, AppError>
     }
 
     /// Counts active (Booked or Pending) slots for a game that fall OUTSIDE a proposed
@@ -142,21 +151,21 @@ impl SlotRepository {
         new_window_start: DateTime<Utc>,
         new_window_end: DateTime<Utc>,
     ) -> Result<i64, AppError> {
-        let row: (i64,) = sqlx::query_as(
+        // query_scalar! replaces the (i64,) tuple pattern, returning the COUNT directly.
+        sqlx::query_scalar!(
             "SELECT COUNT(*)
              FROM slots
              WHERE game_id = $1
                AND status IN ('Booked', 'Pending')
                AND (start_time < $2 OR start_time >= $3)",
+            game_id,
+            new_window_start,
+            new_window_end,
         )
-        .bind(game_id)
-        .bind(new_window_start)
-        .bind(new_window_end)
         .fetch_one(executor)
         .await
-        .map_err(db_err!("Failed to check for orphaned active slots"))?;
-
-        Ok(row.0)
+        .map(|n| n.unwrap_or(0))
+        .map_err(db_err!("Failed to check for orphaned active slots"))
     }
 
     /// Counts all active (Booked or Pending) slots for a game.
@@ -165,15 +174,14 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         game_id: i32,
     ) -> Result<i64, AppError> {
-        let row: (i64,) = sqlx::query_as(
+        sqlx::query_scalar!(
             "SELECT COUNT(*) FROM slots WHERE game_id = $1 AND status IN ('Booked', 'Pending')",
+            game_id,
         )
-        .bind(game_id)
         .fetch_one(executor)
         .await
-        .map_err(db_err!("Failed to check for active bookings before deletion"))?;
-
-        Ok(row.0)
+        .map(|n| n.unwrap_or(0))
+        .map_err(db_err!("Failed to check for active bookings before deletion"))
     }
 
     /// Deletes a single slot by ID inside a transaction.
@@ -182,8 +190,7 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("DELETE FROM slots WHERE id = $1")
-            .bind(slot_id)
+        sqlx::query!("DELETE FROM slots WHERE id = $1", slot_id)
             .execute(executor)
             .await
             .map_err(db_err!("Failed to delete slot from database")) // Result<PgQueryResult, AppError>
@@ -194,10 +201,14 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<Slot, AppError> {
-        query_as::<_, Slot>(
-            "UPDATE slots SET status = 'Available', pending_until = NULL WHERE id = $1 RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
+        sqlx::query_as!(
+            Slot,
+            "UPDATE slots SET status = 'Available', pending_until = NULL
+             WHERE id = $1
+             RETURNING id, game_id, settings_id, label, start_time, end_time,
+                       final_price, status, pending_until, created_at",
+            slot_id,
         )
-        .bind(slot_id)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to update slot status to available"))
@@ -210,14 +221,16 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<Option<Slot>, AppError> {
-        query_as::<_, Slot>(
+        sqlx::query_as!(
+            Slot,
             "UPDATE slots
              SET status = 'Pending',
                  pending_until = NOW() + INTERVAL '15 minutes'
              WHERE id = $1 AND status = 'Available'
-             RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
+             RETURNING id, game_id, settings_id, label, start_time, end_time,
+                       final_price, status, pending_until, created_at",
+            slot_id,
         )
-        .bind(slot_id)
         .fetch_optional(executor)
         .await
         .map_err(db_err!("Failed to lock slot for booking"))
@@ -229,10 +242,14 @@ impl SlotRepository {
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
     ) -> Result<Slot, AppError> {
-        query_as::<_, Slot>(
-            "UPDATE slots SET status = 'Booked', pending_until = NULL WHERE id = $1 RETURNING id, game_id, settings_id, label, start_time, end_time, final_price, status, pending_until, created_at",
+        sqlx::query_as!(
+            Slot,
+            "UPDATE slots SET status = 'Booked', pending_until = NULL
+             WHERE id = $1
+             RETURNING id, game_id, settings_id, label, start_time, end_time,
+                       final_price, status, pending_until, created_at",
+            slot_id,
         )
-        .bind(slot_id)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to mark slot as booked"))
@@ -243,7 +260,7 @@ impl SlotRepository {
     /// Note: The cleanup worker also deletes orphaned bookings associated with these slots,
     /// so we don't need to handle that here.
     pub async fn reset_expired_pending_slots(db: &sqlx::PgPool) -> Result<u64, AppError> {
-        sqlx::query(
+        sqlx::query!(
             "UPDATE slots
              SET status = 'Available', pending_until = NULL
              WHERE status = 'Pending' AND pending_until < NOW()",

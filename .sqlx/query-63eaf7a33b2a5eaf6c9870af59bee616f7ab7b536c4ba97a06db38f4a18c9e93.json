@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE slots\n             SET status = 'Available', pending_until = NULL\n             WHERE status = 'Pending' AND pending_until < NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "63eaf7a33b2a5eaf6c9870af59bee616f7ab7b536c4ba97a06db38f4a18c9e93"
+}

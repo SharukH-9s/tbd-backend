@@ -2,8 +2,7 @@ use crate::{db_conn_err, db_err};
 use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::bookings::Booking;
 use axum::http::StatusCode;
-use sqlx::Row;
-use sqlx::query_as;
+use bigdecimal::BigDecimal;
 
 pub struct BookingRepository;
 
@@ -15,20 +14,22 @@ impl BookingRepository {
         executor: &mut sqlx::PgConnection,
         user_id: i32,
     ) -> Result<bool, AppError> {
-        let row: (i64,) = sqlx::query_as(
+        // query_scalar! replaces the (i64,) tuple pattern, returning COUNT(*) directly.
+        let count = sqlx::query_scalar!(
             "SELECT COUNT(*)
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
              WHERE b.user_id = $1
                AND s.status = 'Pending'
                AND s.pending_until > NOW()",
+            user_id,
         )
-        .bind(user_id)
         .fetch_one(executor)
         .await
+        .map(|n| n.unwrap_or(0))
         .map_err(db_err!("Failed to check for existing pending bookings"))?;
 
-        Ok(row.0 >= 2) // block if user already holds 2 or more pending slots
+        Ok(count >= 2) // block if user already holds 2 or more pending slots
     }
 
     /// Inserts a new booking record inside a transaction.
@@ -41,15 +42,16 @@ impl BookingRepository {
         contact_name: &str,
         contact_phone: &str,
     ) -> Result<Booking, AppError> {
-        query_as::<_, Booking>(
+        sqlx::query_as!(
+            Booking,
             "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
              VALUES ($1, $2, $3, $4, 'Unpaid')
-             RETURNING *",
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+            slot_id,
+            user_id,
+            contact_name,
+            contact_phone,
         )
-        .bind(slot_id)
-        .bind(user_id)
-        .bind(contact_name)
-        .bind(contact_phone)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to create booking record"))
@@ -63,14 +65,15 @@ impl BookingRepository {
         contact_name: &str,
         contact_phone: &str,
     ) -> Result<Booking, AppError> {
-        query_as::<_, Booking>(
+        sqlx::query_as!(
+            Booking,
             "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
              VALUES ($1, NULL, $2, $3, 'Fully_Paid')
-             RETURNING *",
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+            slot_id,
+            contact_name,
+            contact_phone,
         )
-        .bind(slot_id)
-        .bind(contact_name)
-        .bind(contact_phone)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to record offline booking"))
@@ -81,11 +84,62 @@ impl BookingRepository {
         executor: &mut sqlx::PgConnection,
         booking_id: i32,
     ) -> Result<Option<Booking>, AppError> {
-        query_as::<_, Booking>("SELECT * FROM bookings WHERE id = $1")
-            .bind(booking_id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch booking from database"))
+        sqlx::query_as!(
+            Booking,
+            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time
+             FROM bookings WHERE id = $1",
+            booking_id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch booking from database"))
+    }
+
+    // ---------------------------------------------------------------------------
+    // Pattern 3: update_payment_status_tx refactoring
+    //
+    // The original function selected one of two SQL strings at runtime based on
+    // the arguments passed, which is incompatible with sqlx::query_as!.
+    // It is now split into two private concrete helpers, with the original public
+    // method preserved as a thin dispatcher.
+    // ---------------------------------------------------------------------------
+
+    /// Updates payment_status for a booking by its own ID.
+    async fn update_by_booking_id_tx(
+        executor: &mut sqlx::PgConnection,
+        status: &str,
+        booking_id: i32,
+    ) -> Result<Booking, AppError> {
+        sqlx::query_as!(
+            Booking,
+            "UPDATE bookings SET payment_status = $1 WHERE id = $2
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+            status,
+            booking_id,
+        )
+        .fetch_one(executor)
+        .await
+        .map_err(db_err!("Failed to update payment status"))
+    }
+
+    /// Updates payment_status for a booking identified by (slot_id, user_id).
+    async fn update_by_slot_and_user_tx(
+        executor: &mut sqlx::PgConnection,
+        status: &str,
+        slot_id: i32,
+        user_id: i32,
+    ) -> Result<Booking, AppError> {
+        sqlx::query_as!(
+            Booking,
+            "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+            status,
+            slot_id,
+            user_id,
+        )
+        .fetch_one(executor)
+        .await
+        .map_err(db_err!("Failed to update payment status"))
     }
 
     /// Updates payment_status for a booking inside a transaction.
@@ -97,38 +151,17 @@ impl BookingRepository {
         slot_id: Option<i32>,
         user_id: Option<i32>,
     ) -> Result<Booking, AppError> {
-        let (query, filter_val1, filter_val2) = match (booking_id, slot_id, user_id) {
-            (Some(id), _, _) => (
-                "UPDATE bookings SET payment_status = $1 WHERE id = $2 RETURNING *",
-                id,
-                0, // unused
-            ),
-            (_, Some(s_id), Some(u_id)) => (
-                "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3 RETURNING *",
-                s_id,
-                u_id,
-            ),
-            _ => {
-                return Err(AppError {
-                    code: error_codes::INTERNAL_ERROR,
-                    message: "Invalid parameters for payment status update",
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                });
+        match (booking_id, slot_id, user_id) {
+            (Some(id), _, _) => Self::update_by_booking_id_tx(executor, status, id).await,
+            (_, Some(s_id), Some(u_id)) => {
+                Self::update_by_slot_and_user_tx(executor, status, s_id, u_id).await
             }
-        };
-
-        // building the query object and attaching (binding) all the necessary parameters
-        let mut q = sqlx::query_as::<_, Booking>(query)
-            .bind(status) // $1: "Partially_Paid" or "Fully_Paid"
-            .bind(filter_val1); // $2: the slot_id
-        if booking_id.is_none() {
-            q = q.bind(filter_val2);
+            _ => Err(AppError {
+                code: error_codes::INTERNAL_ERROR,
+                message: "Invalid parameters for payment status update",
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+            }),
         }
-
-        // execution of the query and handling errors
-        q.fetch_one(executor)
-            .await
-            .map_err(db_err!("Failed to update payment status"))
     }
 
     pub async fn mark_fully_paid_by_manager_tx(
@@ -138,41 +171,52 @@ impl BookingRepository {
         Self::update_payment_status_tx(executor, "Fully_Paid", Some(booking_id), None, None).await
     }
 
-    /// Internal helper to fetch enriched bookings by a specific filter (user_id or game_id).
-    async fn find_enriched_internal(
-        executor: &mut sqlx::PgConnection,
-        filter_clause: &str,
-        id: i32,
+    // ---------------------------------------------------------------------------
+    // Pattern 2: find_enriched_internal refactoring
+    //
+    // The original generic helper injected a filter clause via format!() at runtime,
+    // which is incompatible with sqlx::query!. It has been deleted and replaced by
+    // two concrete public functions, each with its own fully-spelled-out SQL literal.
+    // The row-mapping logic (advance_paid / due_amount calculation) is preserved.
+    // ---------------------------------------------------------------------------
+
+    /// Fetches all bookings for a user with turf, game, and price details.
+    pub async fn find_by_user_id_enriched(
+        state: &crate::config::state::SharedState,
+        user_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
         use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
-        use bigdecimal::BigDecimal;
 
-        let query = format!(
-            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time, b.contact_name, b.contact_phone,
-                    t.name as turf_name, g.name as game_name, s.final_price, s.start_time, s.end_time,
-                    u.username, u.phone
+        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
+
+        let rows = sqlx::query!(
+            // username and phone are NOT NULL in the users table, but come via LEFT JOIN
+            // (offline bookings have no user row). The "col?" suffix forces sqlx to
+            // infer Option<String> regardless of the underlying column constraint.
+            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time,
+                    b.contact_name, b.contact_phone,
+                    t.name as turf_name, g.name as game_name,
+                    s.final_price, s.start_time, s.end_time,
+                    u.username as \"username?\", u.phone as \"phone?\"
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
              JOIN games g ON s.game_id = g.id
              JOIN turfs t ON g.turf_id = t.id
              LEFT JOIN users u ON b.user_id = u.id
-             WHERE {} = $1
+             WHERE b.user_id = $1
              ORDER BY b.booking_time DESC",
-            filter_clause
-        );
-
-        let rows = sqlx::query(&query)
-            .bind(id)
-            .fetch_all(executor)
-            .await
-            .map_err(db_err!("Failed to fetch bookings"))?;
+            user_id,
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db_err!("Failed to fetch bookings"))?;
 
         let booking_details: Vec<BookingDetail> = rows
-            .iter()
-            .map(|row: &sqlx::postgres::PgRow| {
-                let total_price: BigDecimal = row.get("final_price");
-                let payment_status: String = row.get("payment_status");
+            .into_iter()
+            .map(|row| {
+                let total_price: BigDecimal = row.final_price;
+                let payment_status: String = row.payment_status;
 
                 let (advance_paid, due_amount) = match payment_status.as_str() {
                     "Unpaid" => (BigDecimal::from(0), total_price.clone()),
@@ -185,28 +229,26 @@ impl BookingRepository {
                     _ => (BigDecimal::from(0), total_price.clone()),
                 };
 
-                let user_name: Option<String> = row
-                    .get::<Option<String>, _>("username")
-                    .or_else(|| row.get::<Option<String>, _>("contact_name"));
-                let user_phone: Option<String> = row
-                    .get::<Option<String>, _>("phone")
-                    .or_else(|| row.get::<Option<String>, _>("contact_phone"));
+                // Prefer the joined user profile; fall back to the contact fields stored at
+                // booking time for offline/unauthenticated bookings.
+                let user_name = row.username.or(row.contact_name);
+                let user_phone = row.phone.or(row.contact_phone);
 
                 BookingDetail {
-                    id: row.get("id"),
-                    slot_id: row.get("slot_id"),
-                    booking_number: row.get("id"),
+                    id: row.id,
+                    slot_id: row.slot_id,
+                    booking_number: row.id,
                     user_name,
                     user_phone,
-                    turf_name: row.get("turf_name"),
-                    game_name: row.get("game_name"),
+                    turf_name: row.turf_name,
+                    game_name: row.game_name,
                     total_price,
                     advance_paid,
                     due_amount,
                     payment_status,
-                    booking_time: row.get("booking_time"),
-                    start_time: row.get("start_time"),
-                    end_time: row.get("end_time"),
+                    booking_time: row.booking_time,
+                    start_time: row.start_time,
+                    end_time: row.end_time,
                 }
             })
             .collect();
@@ -214,14 +256,76 @@ impl BookingRepository {
         Ok(booking_details)
     }
 
-    /// Fetches all bookings for a user with turf, game, and price details.
-    pub async fn find_by_user_id_enriched(
+    /// Fetches all bookings for a specific game with turf, game, and price details.
+    /// Used by managers and admins to see all bookings for a specific game.
+    pub async fn find_by_game_id_enriched(
         state: &crate::config::state::SharedState,
-        user_id: i32,
+        game_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
+        use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
+
         let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
-        Self::find_enriched_internal(&mut *conn, "b.user_id", user_id).await
+
+        let rows = sqlx::query!(
+            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time,
+                    b.contact_name, b.contact_phone,
+                    t.name as turf_name, g.name as game_name,
+                    s.final_price, s.start_time, s.end_time,
+                    u.username as \"username?\", u.phone as \"phone?\"
+             FROM bookings b
+             JOIN slots s ON b.slot_id = s.id
+             JOIN games g ON s.game_id = g.id
+             JOIN turfs t ON g.turf_id = t.id
+             LEFT JOIN users u ON b.user_id = u.id
+             WHERE g.id = $1
+             ORDER BY b.booking_time DESC",
+            game_id,
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db_err!("Failed to fetch bookings"))?;
+
+        let booking_details: Vec<BookingDetail> = rows
+            .into_iter()
+            .map(|row| {
+                let total_price: BigDecimal = row.final_price;
+                let payment_status: String = row.payment_status;
+
+                let (advance_paid, due_amount) = match payment_status.as_str() {
+                    "Unpaid" => (BigDecimal::from(0), total_price.clone()),
+                    "Partially_Paid" => {
+                        let advance = &total_price * BigDecimal::from(30) / BigDecimal::from(100);
+                        let due = &total_price * BigDecimal::from(70) / BigDecimal::from(100);
+                        (advance, due)
+                    }
+                    "Fully_Paid" => (total_price.clone(), BigDecimal::from(0)),
+                    _ => (BigDecimal::from(0), total_price.clone()),
+                };
+
+                let user_name = row.username.or(row.contact_name);
+                let user_phone = row.phone.or(row.contact_phone);
+
+                BookingDetail {
+                    id: row.id,
+                    slot_id: row.slot_id,
+                    booking_number: row.id,
+                    user_name,
+                    user_phone,
+                    turf_name: row.turf_name,
+                    game_name: row.game_name,
+                    total_price,
+                    advance_paid,
+                    due_amount,
+                    payment_status,
+                    booking_time: row.booking_time,
+                    start_time: row.start_time,
+                    end_time: row.end_time,
+                }
+            })
+            .collect();
+
+        Ok(booking_details)
     }
 
     /// Deletes orphaned 'Unpaid' booking records whose slot is now 'Available'.
@@ -230,7 +334,7 @@ impl BookingRepository {
     /// this query removes the dangling booking row that was left behind.
     /// Called by the background cleanup worker every 60 seconds, after slot reset.
     pub async fn delete_orphaned_unpaid_bookings(db: &sqlx::PgPool) -> Result<u64, AppError> {
-        sqlx::query(
+        sqlx::query!(
             "DELETE FROM bookings
              WHERE payment_status = 'Unpaid'
                AND slot_id IN (
@@ -249,22 +353,10 @@ impl BookingRepository {
         executor: &mut sqlx::PgConnection,
         booking_id: i32,
     ) -> Result<(), AppError> {
-        sqlx::query("DELETE FROM bookings WHERE id = $1")
-            .bind(booking_id)
+        sqlx::query!("DELETE FROM bookings WHERE id = $1", booking_id)
             .execute(executor)
             .await
             .map_err(db_err!("Failed to delete booking"))?;
         Ok(())
-    }
-
-    /// Fetches all bookings for a specific game with turf, game, and price details.
-    /// Used by managers and admins to see all bookings for a specific game.
-    pub async fn find_by_game_id_enriched(
-        state: &crate::config::state::SharedState,
-        game_id: i32,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
-        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
-        Self::find_enriched_internal(&mut *conn, "g.id", game_id).await
     }
 }

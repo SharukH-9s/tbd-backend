@@ -2,21 +2,29 @@ use crate::{db_conn_err, db_err};
 use crate::config::state::SharedState;
 use crate::domain::errors::AppError;
 use crate::domain::models::turfs::Turf;
-use sqlx::query_as;
 
 pub struct TurfRepository;
 
 impl TurfRepository {
-    const TURF_SELECT: &'static str =
-        "SELECT t.*, u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
-         FROM turfs t
-         JOIN users u ON t.manager_id = u.id";
+    // The TURF_SELECT constant has been removed. Each function now contains its own complete
+    // SQL string literal so that sqlx::query_as! can verify the query at compile time.
+    // query_as! requires a string literal — runtime format!() strings are incompatible.
+    // The INNER JOIN is changed to LEFT JOIN so that manager_name/email/phone are correctly
+    // inferred as nullable (Option<String>) by the macro, matching the Turf struct fields.
 
     pub async fn find_all(state: &SharedState) -> Result<Vec<Turf>, AppError> {
-        query_as::<_, Turf>(&format!("{} ORDER BY t.id ASC", Self::TURF_SELECT))
-            .fetch_all(&state.db)
-            .await
-            .map_err(db_err!("Failed to fetch turfs from database"))
+        sqlx::query_as!(
+            Turf,
+            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+                    t.created_at, t.updated_at,
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+             FROM turfs t
+             LEFT JOIN users u ON t.manager_id = u.id
+             ORDER BY t.id ASC",
+        )
+        .fetch_all(&state.db)
+        .await
+        .map_err(db_err!("Failed to fetch turfs from database"))
     }
 
     pub async fn find_by_id(state: &SharedState, id: i32) -> Result<Option<Turf>, AppError> {
@@ -28,11 +36,19 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<Option<Turf>, AppError> {
-        query_as::<_, Turf>(&format!("{} WHERE t.id = $1", Self::TURF_SELECT))
-            .bind(id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch turf from database (tx)"))
+        sqlx::query_as!(
+            Turf,
+            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+                    t.created_at, t.updated_at,
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+             FROM turfs t
+             LEFT JOIN users u ON t.manager_id = u.id
+             WHERE t.id = $1",
+            id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch turf from database (tx)"))
     }
 
     pub async fn find_by_manager_id(
@@ -50,11 +66,17 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         manager_id: i32,
     ) -> Result<Vec<Turf>, AppError> {
-        query_as::<_, Turf>(&format!(
-            "{} WHERE t.manager_id = $1 ORDER BY t.id ASC",
-            Self::TURF_SELECT
-        ))
-        .bind(manager_id)
+        sqlx::query_as!(
+            Turf,
+            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+                    t.created_at, t.updated_at,
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+             FROM turfs t
+             LEFT JOIN users u ON t.manager_id = u.id
+             WHERE t.manager_id = $1
+             ORDER BY t.id ASC",
+            manager_id,
+        )
         .fetch_all(executor)
         .await
         .map_err(db_err!("Failed to fetch manager turfs from database"))
@@ -64,11 +86,19 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         manager_id: i32,
     ) -> Result<Option<Turf>, AppError> {
-        query_as::<_, Turf>(&format!("{} WHERE t.manager_id = $1", Self::TURF_SELECT))
-            .bind(manager_id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch turf by manager ID from database"))
+        sqlx::query_as!(
+            Turf,
+            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+                    t.created_at, t.updated_at,
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+             FROM turfs t
+             LEFT JOIN users u ON t.manager_id = u.id
+             WHERE t.manager_id = $1",
+            manager_id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch turf by manager ID from database"))
     }
 
     pub async fn insert_tx(
@@ -79,16 +109,16 @@ impl TurfRepository {
         description: &str, // deref coercion
     ) -> Result<Turf, AppError> {
         use crate::domain::errors::error_codes;
-        // first insert turf and get id
-        let turf_id = sqlx::query_scalar::<_, i32>(
+        // First insert the turf and get its ID back via query_scalar!
+        let turf_id = sqlx::query_scalar!(
             "INSERT INTO turfs (manager_id, name, location, description)
              VALUES ($1, $2, $3, $4)
              RETURNING id",
+            manager_id,
+            name,
+            location,
+            description,
         )
-        .bind(manager_id)
-        .bind(name)
-        .bind(location)
-        .bind(description)
         .fetch_one(&mut *executor)
         .await
         .map_err(db_err!("Failed to insert turf into database"))?;
@@ -112,15 +142,15 @@ impl TurfRepository {
         manager_id: i32,
     ) -> Result<Turf, AppError> {
         use crate::domain::errors::error_codes;
-        sqlx::query(
+        sqlx::query!(
             "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4, updated_at = NOW()
              WHERE id = $5",
+            name,
+            location,
+            description,
+            manager_id,
+            turf_id,
         )
-        .bind(name)
-        .bind(location)
-        .bind(description)
-        .bind(manager_id)
-        .bind(turf_id)
         .execute(&mut *executor)
         .await
         .map_err(db_err!("Failed to update turf in database"))?;
@@ -139,8 +169,7 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("DELETE FROM turfs WHERE id = $1")
-            .bind(id)
+        sqlx::query!("DELETE FROM turfs WHERE id = $1", id)
             .execute(executor)
             .await
             .map_err(db_err!("Failed to delete turf from database"))

@@ -27,11 +27,13 @@ impl UserRepository {
         executor: &mut sqlx::PgConnection,
         email: &str,
     ) -> Result<Option<User>, AppError> {
-        sqlx::query_as::<_, User>(
-            "SELECT id, username, email, password_hash, phone, role, location, created_at, updated_at
-             FROM users WHERE email = $1"
+        sqlx::query_as!(
+            User,
+            "SELECT id, username, email, password_hash, phone, role as \"role: Role\",
+                    location, created_at, updated_at
+             FROM users WHERE email = $1",
+            email,
         )
-        .bind(email)
         .fetch_optional(executor)
         .await
         .map_err(db_err!("A database error occurred while fetching user by email"))
@@ -41,11 +43,13 @@ impl UserRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<Option<User>, AppError> {
-        sqlx::query_as::<_, User>(
-            "SELECT id, username, email, password_hash, phone, role, location, created_at, updated_at
-             FROM users WHERE id = $1"
+        sqlx::query_as!(
+            User,
+            "SELECT id, username, email, password_hash, phone, role as \"role: Role\",
+                    location, created_at, updated_at
+             FROM users WHERE id = $1",
+            id,
         )
-        .bind(id)
         .fetch_optional(executor)
         .await
         .map_err(db_err!("A database error occurred while fetching user by id"))
@@ -65,16 +69,18 @@ impl UserRepository {
     ) -> Result<User, AppError> {
         let (username, email, password_hash, phone, role) = user_data;
 
-        sqlx::query_as::<_, User>(
+        sqlx::query_as!(
+            User,
             "INSERT INTO users (username, email, password_hash, phone, role)
              VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, username, email, password_hash, phone, role, location, created_at, updated_at"
+             RETURNING id, username, email, password_hash, phone, role as \"role: Role\",
+                       location, created_at, updated_at",
+            username,
+            email,
+            password_hash,
+            phone,
+            role as Role, // cast the enum to its sqlx type
         )
-        .bind(&username)
-        .bind(&email)
-        .bind(&password_hash)
-        .bind(&phone)
-        .bind(&role)
         .fetch_one(executor)
         .await
         .map_err(|e| {
@@ -119,12 +125,14 @@ impl UserRepository {
         user_id: i32,
         role: Role,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
-            .bind(role)
-            .bind(user_id)
-            .execute(executor)
-            .await
-            .map_err(db_err!("Failed to update user role"))
+        sqlx::query!(
+            "UPDATE users SET role = $1 WHERE id = $2",
+            role as Role, // cast the enum to its sqlx type
+            user_id,
+        )
+        .execute(executor)
+        .await
+        .map_err(db_err!("Failed to update user role"))
     }
 
     // Delete ALL refresh tokens for a given user.
@@ -133,8 +141,7 @@ impl UserRepository {
         database: &SharedState,
         user_id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1")
-            .bind(user_id)
+        sqlx::query!("DELETE FROM refresh_tokens WHERE user_id = $1", user_id)
             .execute(&database.db)
             .await
             .map_err(db_err!("A database error occurred while deleting the refresh tokens"))
@@ -146,12 +153,14 @@ impl UserRepository {
         token: String,
         user_id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("INSERT INTO refresh_tokens (token, user_id) VALUES ($1, $2)")
-            .bind(&token)
-            .bind(user_id)
-            .execute(&database.db)
-            .await
-            .map_err(db_err!("A database error occurred while storing the refresh token"))
+        sqlx::query!(
+            "INSERT INTO refresh_tokens (token, user_id) VALUES ($1, $2)",
+            token,
+            user_id,
+        )
+        .execute(&database.db)
+        .await
+        .map_err(db_err!("A database error occurred while storing the refresh token"))
     }
 
     // Delete the old refresh token and return the user_id and role it belonged to.
@@ -159,28 +168,29 @@ impl UserRepository {
         database: &SharedState,
         old_token: &str,
     ) -> Result<(i32, Role), AppError> {
-        let result = sqlx::query_as::<_, (i32, Role)>(
-            "WITH deleted AS (
-                DELETE FROM refresh_tokens WHERE token = $1 RETURNING user_id
-             )
-             SELECT u.id, u.role FROM users u
-             INNER JOIN deleted d ON u.id = d.user_id",
+        // query! is used instead of query_as! because the result is a tuple (i32, Role),
+        // not a named struct. The "role!: Role" column override tells sqlx to decode the
+        // text column as our Role enum at compile time.
+        let result = sqlx::query!(
+            r#"WITH deleted AS (
+                   DELETE FROM refresh_tokens WHERE token = $1 RETURNING user_id
+               )
+               SELECT u.id, u.role as "role!: Role" FROM users u
+               INNER JOIN deleted d ON u.id = d.user_id"#,
+            old_token,
         )
-        .bind(old_token)
         .fetch_optional(&database.db)
         .await
-        .map_err(db_err!("A database error occurred"))?; // ? will unwrap the Result<Option<(i32, Role)>, sqlx::Error> to Option<(i32, Role)>
+        .map_err(db_err!("A database error occurred"))?; // ? will unwrap the Result<Option<_>, sqlx::Error> to Option<_>
 
         match result {
-            Some(user_id_and_role) => return Ok(user_id_and_role), // ? operator will unwrap this Ok(user_id_and_role) in the refresh_access_token function
-            None => {
-                return Err(AppError {
-                    code: error_codes::INVALID_REFRESH_TOKEN,
-                    message: "Invalid or expired refresh token",
-                    status: StatusCode::UNAUTHORIZED,
-                });
-            }
-        };
+            Some(row) => Ok((row.id, row.role)),
+            None => Err(AppError {
+                code: error_codes::INVALID_REFRESH_TOKEN,
+                message: "Invalid or expired refresh token",
+                status: StatusCode::UNAUTHORIZED,
+            }),
+        }
     }
 
     // Delete the refresh token on logout
@@ -188,8 +198,7 @@ impl UserRepository {
         database: &SharedState,
         token: &str, // deref coercion
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE token = $1")
-            .bind(token)
+        sqlx::query!("DELETE FROM refresh_tokens WHERE token = $1", token)
             .execute(&database.db)
             .await
             .map_err(db_err!("A database error occurred while removing the refresh token"))
@@ -203,17 +212,19 @@ impl UserRepository {
         phone: &str,
         location: Option<&str>,
     ) -> Result<User, AppError> {
-        sqlx::query_as::<_, User>(
+        sqlx::query_as!(
+            User,
             "UPDATE users
              SET username = $1, password_hash = $2, phone = $3, location = $4, updated_at = NOW()
              WHERE id = $5
-             RETURNING id, username, email, password_hash, phone, role, location, created_at, updated_at"
+             RETURNING id, username, email, password_hash, phone, role as \"role: Role\",
+                       location, created_at, updated_at",
+            username,
+            password_hash,
+            phone,
+            location,
+            user_id,
         )
-        .bind(username)
-        .bind(password_hash)
-        .bind(phone)
-        .bind(location)
-        .bind(user_id)
         .fetch_one(executor)
         .await
         .map_err(|e| {

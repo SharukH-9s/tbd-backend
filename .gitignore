@@ -4,5 +4,6 @@ target
 *.txt
 *.md
 *.sql
+!schema.sql
 debug.log
 frontend/

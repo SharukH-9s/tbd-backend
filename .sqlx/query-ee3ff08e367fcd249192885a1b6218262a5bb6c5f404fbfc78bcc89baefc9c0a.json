@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)\n             FROM bookings b\n             JOIN slots s ON b.slot_id = s.id\n             WHERE b.user_id = $1\n               AND s.status = 'Pending'\n               AND s.pending_until > NOW()",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ee3ff08e367fcd249192885a1b6218262a5bb6c5f404fbfc78bcc89baefc9c0a"
+}

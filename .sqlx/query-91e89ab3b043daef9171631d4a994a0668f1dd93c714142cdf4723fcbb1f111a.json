@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM bookings\n             WHERE payment_status = 'Unpaid'\n               AND slot_id IN (\n                   SELECT id FROM slots WHERE status = 'Available'\n               )",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "91e89ab3b043daef9171631d4a994a0668f1dd93c714142cdf4723fcbb1f111a"
+}

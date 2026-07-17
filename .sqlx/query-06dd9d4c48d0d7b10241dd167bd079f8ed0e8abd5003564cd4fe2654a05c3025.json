@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE games SET name = $1, game_start_time = $2, game_end_time = $3\n             WHERE id = $4\n             RETURNING id, turf_id, name, game_start_time, game_end_time, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "turf_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "game_start_time",
+        "type_info": "Time"
+      },
+      {
+        "ordinal": 4,
+        "name": "game_end_time",
+        "type_info": "Time"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Time",
+        "Time",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "06dd9d4c48d0d7b10241dd167bd079f8ed0e8abd5003564cd4fe2654a05c3025"
+}

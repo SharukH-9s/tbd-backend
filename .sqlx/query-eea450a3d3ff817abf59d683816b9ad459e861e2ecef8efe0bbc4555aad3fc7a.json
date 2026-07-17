@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE bookings SET payment_status = $1 WHERE id = $2\n             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "slot_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "user_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "contact_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "contact_phone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "payment_status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "booking_time",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "eea450a3d3ff817abf59d683816b9ad459e861e2ecef8efe0bbc4555aad3fc7a"
+}

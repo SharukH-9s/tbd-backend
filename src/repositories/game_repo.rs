@@ -3,7 +3,6 @@ use crate::config::state::SharedState;
 use crate::domain::errors::AppError;
 use crate::domain::models::games::Game;
 use chrono::NaiveTime;
-use sqlx::query_as;
 
 pub struct GameRepository;
 
@@ -15,15 +14,16 @@ impl GameRepository {
         game_start_time: NaiveTime,
         game_end_time: NaiveTime,
     ) -> Result<Game, AppError> {
-        query_as::<_, Game>(
+        sqlx::query_as!(
+            Game,
             "INSERT INTO games (turf_id, name, game_start_time, game_end_time)
              VALUES ($1, $2, $3, $4)
-             RETURNING *",
+             RETURNING id, turf_id, name, game_start_time, game_end_time, created_at",
+            turf_id,
+            name,
+            game_start_time,
+            game_end_time,
         )
-        .bind(turf_id)
-        .bind(name)
-        .bind(game_start_time)
-        .bind(game_end_time)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to insert game into database")) // Result<Game, AppError>
@@ -33,11 +33,15 @@ impl GameRepository {
         state: &SharedState,
         turf_id: i32,
     ) -> Result<Vec<Game>, AppError> {
-        query_as::<_, Game>("SELECT * FROM games WHERE turf_id = $1 ORDER BY id ASC")
-            .bind(turf_id)
-            .fetch_all(&state.db)
-            .await
-            .map_err(db_err!("Failed to fetch games from database")) // Result<Vec<Game>, AppError>
+        sqlx::query_as!(
+            Game,
+            "SELECT id, turf_id, name, game_start_time, game_end_time, created_at
+             FROM games WHERE turf_id = $1 ORDER BY id ASC",
+            turf_id,
+        )
+        .fetch_all(&state.db)
+        .await
+        .map_err(db_err!("Failed to fetch games from database")) // Result<Vec<Game>, AppError>
     }
 
     pub async fn find_by_id(
@@ -52,11 +56,15 @@ impl GameRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<Option<Game>, AppError> {
-        query_as::<_, Game>("SELECT * FROM games WHERE id = $1")
-            .bind(id)
-            .fetch_optional(executor)
-            .await
-            .map_err(db_err!("Failed to fetch game from database (tx)")) // Result<Option<Game>, AppError>
+        sqlx::query_as!(
+            Game,
+            "SELECT id, turf_id, name, game_start_time, game_end_time, created_at
+             FROM games WHERE id = $1",
+            id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch game from database (tx)")) // Result<Option<Game>, AppError>
     }
 
     pub async fn update_tx(
@@ -66,15 +74,16 @@ impl GameRepository {
         game_start_time: NaiveTime,
         game_end_time: NaiveTime,
     ) -> Result<Game, AppError> {
-        query_as::<_, Game>(
+        sqlx::query_as!(
+            Game,
             "UPDATE games SET name = $1, game_start_time = $2, game_end_time = $3
              WHERE id = $4
-             RETURNING *",
+             RETURNING id, turf_id, name, game_start_time, game_end_time, created_at",
+            name,
+            game_start_time,
+            game_end_time,
+            id,
         )
-        .bind(name)
-        .bind(game_start_time)
-        .bind(game_end_time)
-        .bind(id)
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to update game in database")) // Result<Game, AppError>
@@ -84,8 +93,7 @@ impl GameRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<sqlx::postgres::PgQueryResult, AppError> {
-        sqlx::query("DELETE FROM games WHERE id = $1")
-            .bind(id)
+        sqlx::query!("DELETE FROM games WHERE id = $1", id)
             .execute(executor)
             .await
             .map_err(db_err!("Failed to delete game from database")) // Result<sqlx::postgres::PgQueryResult, AppError>
