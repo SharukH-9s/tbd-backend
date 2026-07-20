@@ -8,6 +8,7 @@ use bcrypt::{DEFAULT_COST, hash};
 pub struct UserService;
 
 impl UserService {
+    #[tracing::instrument(skip(database, payload), fields(email = %payload.email), name = "user.register")]
     pub async fn register_user(
         database: &SharedState,
         payload: &RegisterRequest,
@@ -30,12 +31,13 @@ impl UserService {
         );
 
         let new_user = UserRepository::insert_user_if_unique(database, user_data).await?;
-        println!("New user created: {:?}", new_user);
+        tracing::info!(user_id = new_user.id, email = %new_user.email, "New user registered successfully");
 
         // return the new user as a UserResponse.
         Ok(UserResponse::from(&new_user))
     }
 
+    #[tracing::instrument(skip(database, payload), fields(target_user_id, caller_id), name = "user.update_profile")]
     pub async fn update_profile(
         database: &SharedState,
         target_user_id: i32,
@@ -44,7 +46,7 @@ impl UserService {
         payload: crate::domain::models::users::UpdateProfileRequest,
     ) -> Result<UserResponse, AppError> {
         let mut conn = database.db.acquire().await.map_err(|e| {
-            eprintln!("Failed to acquire connection: {}", e);
+            tracing::error!(error = %e, "Failed to acquire DB connection for profile update");
             AppError::internal(error_codes::DATABASE_ERROR, "Internal server error")
         })?;
 

@@ -93,25 +93,53 @@ impl IntoResponse for AppError {
 
 impl AppError {
     pub fn not_found(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::NOT_FOUND }
+        Self {
+            code,
+            message,
+            status: StatusCode::NOT_FOUND,
+        }
     }
     pub fn forbidden(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::FORBIDDEN }
+        Self {
+            code,
+            message,
+            status: StatusCode::FORBIDDEN,
+        }
     }
     pub fn conflict(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::CONFLICT }
+        Self {
+            code,
+            message,
+            status: StatusCode::CONFLICT,
+        }
     }
     pub fn internal(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::INTERNAL_SERVER_ERROR }
+        Self {
+            code,
+            message,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+        }
     }
     pub fn bad_request(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::BAD_REQUEST }
+        Self {
+            code,
+            message,
+            status: StatusCode::BAD_REQUEST,
+        }
     }
     pub fn unauthorized(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::UNAUTHORIZED }
+        Self {
+            code,
+            message,
+            status: StatusCode::UNAUTHORIZED,
+        }
     }
     pub fn service_unavailable(code: &'static str, message: &'static str) -> Self {
-        Self { code, message, status: StatusCode::SERVICE_UNAVAILABLE }
+        Self {
+            code,
+            message,
+            status: StatusCode::SERVICE_UNAVAILABLE,
+        }
     }
 }
 
@@ -148,7 +176,7 @@ JSON
 macro_rules! db_err {
     ($msg:expr) => {
         |e| {
-            eprintln!("Database error: {}", e);
+            tracing::error!(error = %e, "Database error");
             $crate::domain::errors::AppError {
                 code: $crate::domain::errors::error_codes::DATABASE_ERROR,
                 message: $msg,
@@ -169,7 +197,7 @@ macro_rules! db_err {
 macro_rules! db_conn_err {
     () => {
         |e| {
-            eprintln!("Failed to acquire database connection: {}", e);
+            tracing::error!(error = %e, "Failed to acquire database connection from pool");
             $crate::domain::errors::AppError {
                 code: $crate::domain::errors::error_codes::DATABASE_ERROR,
                 message: "Internal server error",

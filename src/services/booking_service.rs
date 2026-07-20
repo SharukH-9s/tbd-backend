@@ -18,6 +18,7 @@ impl BookingService {
     ///   4. If the slot was already taken (None returned), reject with SLOT_UNAVAILABLE.
     ///   5. Insert a booking record with payment_status = 'Unpaid' and contact info.
     ///   6. Commit.
+    #[tracing::instrument(skip(state), fields(slot_id, caller_id), name = "booking.initiate")]
     pub async fn initiate_booking(
         state: &SharedState,
         slot_id: i32,
@@ -64,6 +65,7 @@ impl BookingService {
     ///   3. Guard: booking must not be 'Fully_Paid' already → 400 ALREADY_SETTLED if not
     ///   4. Mark booking as 'Fully_Paid'
     ///   5. Commit
+    #[tracing::instrument(skip(state), fields(booking_id, caller_id), name = "booking.update_payment")]
     pub async fn update_payment(
         state: &SharedState,
         booking_id: i32,
@@ -128,6 +130,7 @@ impl BookingService {
     ///   4. Delete the booking record
     ///   5. Reset slot: status = 'Available', pending_until = NULL
     ///   6. Commit
+    #[tracing::instrument(skip(state), fields(booking_id, caller_id), name = "booking.cancel")]
     pub async fn cancel_booking(
         state: &SharedState,
         booking_id: i32,
@@ -211,6 +214,7 @@ impl BookingService {
 
     /// Mock Payment Webhook — Advance 30%
     /// Sets booking to 'Partially_Paid' and locks slot as 'Booked'.
+    #[tracing::instrument(skip(state), fields(slot_id, user_id), name = "booking.pay_advance")]
     pub async fn pay_advance(
         state: &SharedState,
         slot_id: i32,
@@ -221,6 +225,7 @@ impl BookingService {
 
     /// Mock Payment Webhook — Full 100%
     /// Sets booking to 'Fully_Paid' and locks slot as 'Booked'.
+    #[tracing::instrument(skip(state), fields(slot_id, user_id), name = "booking.pay_full")]
     pub async fn pay_full(
         state: &SharedState,
         slot_id: i32,

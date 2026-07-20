@@ -104,7 +104,7 @@ impl UserRepository {
                     }
                 }
             }
-            eprintln!("Database error: {}", e);
+            tracing::error!(error = %e, "Unexpected database error during user registration");
             AppError {
                 code: error_codes::DATABASE_ERROR,
                 message: "A database error occurred during registration",
@@ -241,7 +241,7 @@ impl UserRepository {
                     }
                 }
             }
-            eprintln!("Database error: {}", e);
+            tracing::error!(error = %e, "Unexpected database error during profile update");
             AppError {
                 code: error_codes::DATABASE_ERROR,
                 message: "A database error occurred while updating the profile",

@@ -7,16 +7,25 @@ mod services;
 use crate::config::state::{AppState, SharedState};
 use axum::{
     Json, Router, middleware,
+    http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
 };
 use dotenvy::dotenv;
 use http::{HeaderValue, Method};
+use metrics_exporter_prometheus::PrometheusBuilder;
+use opentelemetry::KeyValue;
+use opentelemetry::trace::TracerProvider as _;
+use opentelemetry_otlp::SpanExporter;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::prelude::*;
 
 async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
@@ -30,10 +39,7 @@ async fn ping() -> Json<serde_json::Value> {
 async fn health_check(
     axum::extract::State(state): axum::extract::State<SharedState>,
 ) -> axum::response::Response {
-    match sqlx::query("SELECT 1")
-        .execute(&state.db)
-        .await
-    {
+    match sqlx::query("SELECT 1").execute(&state.db).await {
         Ok(_) => (
             axum::http::StatusCode::OK,
             Json(json!({ "status": "healthy", "database": "reachable" })),
@@ -52,10 +58,96 @@ async fn health_check(
 
 #[tokio::main]
 async fn main() {
-    dotenv().ok(); // This line looks for a file named .env in the project's root folder, It loads "Environment Variables" from a text file into the computer's temporary memory while the app is running.
+    // STEP 1: Initialize the global tracing subscriber — MUST run before anything
+    // else. If the DB or Redis connection below panics, the error will be caught
+    // and formatted here rather than silently crashing with a blank log screen.
+
+    // Non-blocking writer: app dumps logs into an in-memory buffer instantly;
+    // a background thread handles the slow write to stdout.
+    // _guard must be kept alive for the lifetime of main() — dropping it early
+    // flushes the buffer and stops the background writer prematurely.
+    let (non_blocking_writer, _guard) = tracing_appender::non_blocking(std::io::stdout());
+
+    // EnvFilter reads RUST_LOG at runtime (defaults to "info" if not set).
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"));
+
+    // Environment-aware format layer:
+    //   APP_ENV=production  → JSON output (ingested by Render log drains, Datadog, etc.)
+    //   anything else       → compact, human-readable text for local development
+    let app_env = std::env::var("APP_ENV").unwrap_or_else(|_| "development".to_string());
+
+    // Each layer is Option<_>: tracing-subscriber treats None as a zero-cost no-op,
+    // so exactly one of these will be active. Both share the same non-blocking writer.
+    let json_layer = (app_env == "production").then(|| {
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(non_blocking_writer.clone())
+    });
+    let text_layer = (app_env != "production").then(|| {
+        tracing_subscriber::fmt::layer()
+            .compact()
+            .with_writer(non_blocking_writer)
+    });
+
+    // dotenv() MUST run before OTel exporter construction so that
+    // OTEL_EXPORTER_OTLP_ENDPOINT (if set in .env) is visible to the exporter.
+    dotenv().ok();
     let secret = env::var("JWT_SECRET").expect("JWT_SECRET must be set");
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let redis_url = env::var("REDIS_URL").expect("REDIS_URL must be set");
+
+    // STEP 2.5: Install the global Prometheus recorder.
+    // Must happen before any metrics macros (counter!/gauge!/histogram!) are called.
+    // The returned handle lets us render the accumulated metrics on demand via the /metrics route.
+    let metrics_handle = PrometheusBuilder::new()
+        .install_recorder()
+        .expect("Failed to install global Prometheus recorder");
+    // Read the optional bearer token that guards /metrics.
+    // Set METRICS_BEARER_TOKEN in .env for production; leave unset for local development.
+    let metrics_token = env::var("METRICS_BEARER_TOKEN").ok();
+
+    // STEP 2: Register the W3C TraceContext Propagator
+    // Inbound middleware (like Axum's TraceLayer) hands the raw HTTP headers over to this global TraceContextPropagator, the propagator performs a string extraction process on the traceparent header value.
+    // The propagator parses this raw text string and returns a structured object into oour application's memory called a SpanContext.
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
+
+    // STEP 3: Configure the exporter and provider
+    let resource = Resource::builder() // A Resource represents the entity generating the data. Every trace line emitted by this backend will be permanently stamped with identity tags (service.name = "turf_bd_backend" and deployment.environment = "production")
+        .with_service_name("turf_bd_backend")
+        .with_attribute(KeyValue::new("deployment.environment", app_env.clone()))
+        .build();
+    let exporter = SpanExporter::builder() // The exporter packages completed spans and pushes them via HTTP/Protobuf to an OTel Collector (defaulting to http://localhost:4318/v1/traces)
+        .with_http()
+        .build()
+        .expect("Failed to build OTLP exporter");
+
+    // Coordinate via SdkTracerProvider
+    let tracer_provider = SdkTracerProvider::builder() // The SdkTracerProvider ties the resource identity and network exporter together into a unified runtime engine.
+        .with_resource(resource)
+        .with_batch_exporter(exporter) // the SDK bundles finished spans into an optimized in-memory memory buffer. A background Tokio task periodically flushes these batches across the network.
+        .build();
+
+    // Register the provider as the global standard. We invoke .clone() here so the main.rs loop retains a distinct handle to this provider, which is required for an explicit flush during server shutdown.
+    opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+
+    // Create a tracer instance from the provider, naming it after our service.
+    let otel_tracer = tracer_provider.tracer("turf_bd_backend");
+
+    // STEP 4: Attach the tracing-opentelemetry layer to the subscriber registry
+    let otel_layer = tracing_opentelemetry::layer().with_tracer(otel_tracer);
+
+    // Single .init() call — no risk of calling it twice.
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(otel_layer)
+        .with(json_layer)
+        .with(text_layer)
+        .init();
+
+    tracing::info!(env = %app_env, "Tracing subscriber initialized");
 
     // Connect to PostgreSQL and create a connection pool.
     // PgPoolOptions lets us configure the pool before connecting.
@@ -68,7 +160,7 @@ async fn main() {
         .await
         .expect("Failed to connect to the database. Check DATABASE_URL in .env");
 
-    println!("Connected to database");
+    tracing::info!("Connected to PostgreSQL database");
 
     // Connect to Render Key Value (Redis) and get a multiplexed async connection.
     // A multiplexed connection can be cloned cheaply across handlers — no Mutex needed.
@@ -78,7 +170,7 @@ async fn main() {
         .get_multiplexed_async_connection()
         .await
         .expect("Failed to connect to Redis. Ensure REDIS_URL is reachable.");
-    println!("Connected to Redis");
+    tracing::info!("Connected to Redis");
 
     let shared_state: SharedState = Arc::new(AppState {
         db,
@@ -94,6 +186,9 @@ async fn main() {
     tokio::spawn(api::utils::cleanup::run_cleanup_worker(
         shared_state.clone(),
     ));
+
+    // Background worker: publish SQLx connection pool gauges to Prometheus every 5 seconds.
+    tokio::spawn(api::middleware::metrics::track_database_metrics(shared_state.db.clone()));
 
     let cors = CorsLayer::new()
         .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
@@ -244,26 +339,68 @@ async fn main() {
             api::middleware::rate_limiter::api_rate_limiter,
         ));
 
+    // Capture values for the /metrics closure.
+    let captured_handle = metrics_handle.clone();
+    let captured_token = metrics_token.clone();
+
     // Merge all route groups
     let final_router = Router::new()
         .route("/health", get(health_check))
         .route("/ping", get(ping))
+        // Prometheus scrape endpoint — guarded by an optional bearer token.
+        // Set METRICS_BEARER_TOKEN in .env to enable auth; leave unset for open local access.
+        .route(
+            "/metrics",
+            get(move |headers: axum::http::HeaderMap| {
+                let handle = captured_handle.clone();
+                let token = captured_token.clone();
+                async move {
+                    if let Some(expected) = token {
+                        let provided = headers
+                            .get(axum::http::header::AUTHORIZATION)
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or("");
+                        if provided != format!("Bearer {}", expected) {
+                            return Err(StatusCode::UNAUTHORIZED);
+                        }
+                    }
+                    Ok(handle.render())
+                }
+            }),
+        )
         .merge(auth_routes)
         .merge(api_routes)
+        .layer(middleware::from_fn(
+            api::middleware::metrics::track_http_metrics,
+        ))
         .layer(cors)
+        .layer(TraceLayer::new_for_http()) // Auto-creates spans for all HTTP requests
         .with_state(shared_state);
 
     let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string()); // PORT will be set by the deployer
     let address = format!("0.0.0.0:{}", port); // 0.0.0.0 means "listen on all available network interfaces."
-    println!("Server starting on {}", address);
+    tracing::info!(address = %address, "Server starting");
 
     let listener = tokio::net::TcpListener::bind(&address).await.unwrap();
 
     axum::serve(
         listener,
         // ConnectInfo<SocketAddr> is extracted by our custom rate limiter middleware
-        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(), // if run locally itll be the the raw TCP connection's remote address, if deployed on a platform that uses a reverse proxy (like Render, Cloudflare, or Nginx), the socketaddress will be set by the load balancer
+        final_router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
+    .with_graceful_shutdown(async {
+        // Wait for Ctrl-C (or SIGTERM on Linux/Render). Once the signal fires,
+        // axum drains in-flight requests, then this future completes and we fall
+        // through to the OTel shutdown below, flushing any buffered spans.
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("Shutdown signal received, flushing telemetry");
+    })
     .await
     .unwrap();
+
+    // Flush remaining in-memory spans before the process exits.
+    // This runs because with_graceful_shutdown() properly returns after the signal.
+    if let Err(err) = tracer_provider.shutdown() {
+        tracing::error!("Error shutting down tracer provider: {err:?}");
+    }
 }

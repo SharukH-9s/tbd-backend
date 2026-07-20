@@ -97,7 +97,7 @@ impl GameSettingsRepository {
             .execute(executor)
             .await
             .map_err(|e| {
-                eprintln!("Database error: {}", e);
+                tracing::error!(error = %e, "Database error during game settings deletion");
                 let message = if e.to_string().contains("fk") || e.to_string().contains("foreign key") {
                     "Failed to delete game settings from database. There are slots made of this setting."
                 } else {

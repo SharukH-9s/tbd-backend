@@ -19,7 +19,15 @@ time = "0.3"
 dotenvy = "0.15.7"
 bigdecimal = { version = "0.4", features = ["serde"] }
 sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "postgres", "macros", "chrono", "uuid", "bigdecimal"] }
-tower-http = { version = "0.6", features = ["cors", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "fs", "trace"] }
 http = "1"
 redis = { version = "0.27", features = ["tokio-comp"] }
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tracing-appender = "0.2"
+opentelemetry = "0.32.0"
+opentelemetry_sdk = { version = "0.32.1", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.32.0", features = ["reqwest-client"] }
+tracing-opentelemetry = "0.33.0"
+metrics = "0.24"
+metrics-exporter-prometheus = "0.16"

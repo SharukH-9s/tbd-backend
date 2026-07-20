@@ -66,7 +66,7 @@ pub async fn logout_handler(
     // 2. Remove the refresh token from the database
     if let Some(cookie) = jar.get("refresh_token") {
         if let Ok(_) = AuthService::remove_refresh_token(&database, cookie.value()).await {
-            println!("Refresh token removed successfully");
+            tracing::debug!("Refresh token removed from database on logout");
         }
     }
 

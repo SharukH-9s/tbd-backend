@@ -3,6 +3,7 @@ use crate::domain::models::users::Role;
 use crate::repositories::user_repo::UserRepository;
 use std::env;
 
+#[tracing::instrument(skip(state), name = "seed.ensure_admin_exists")]
 pub async fn ensure_admin_exists(state: &SharedState) {
     let admin_email = env::var("ADMIN_EMAIL").expect("ADMIN_EMAIL must be set in .env");
     let admin_password = env::var("ADMIN_PASSWORD").expect("ADMIN_PASSWORD must be set in .env");
@@ -11,23 +12,23 @@ pub async fn ensure_admin_exists(state: &SharedState) {
     // 1. Check if the admin already exists
     match UserRepository::find_by_email(state, &admin_email).await {
         Ok(Some(_)) => {
-            println!("Admin user already exists: {}", admin_email);
+            tracing::info!(email = %admin_email, "Admin user already exists — skipping seed");
             return;
         }
         Ok(None) => {}
         Err(e) => {
-            eprintln!("Failed to check for admin user: {:?}", e);
+            tracing::error!(error = ?e, "Failed to query for admin user during seed");
             return;
         }
     }
 
-    println!("Creating initial Admin user: {}...", admin_email);
+    tracing::info!(email = %admin_email, "Admin user not found — creating initial Admin");
 
     // 2. Hash the admin password
     let hashed_password = match bcrypt::hash(admin_password, bcrypt::DEFAULT_COST) {
         Ok(h) => h,
         Err(e) => {
-            eprintln!("Failed to hash admin password: {}", e);
+            tracing::error!(error = %e, "Failed to hash admin password during seed");
             return;
         }
     };
@@ -43,7 +44,7 @@ pub async fn ensure_admin_exists(state: &SharedState) {
     );
 
     match UserRepository::insert_user_if_unique(state, user_data).await {
-        Ok(_) => println!("Admin user created successfully: {}", admin_email),
-        Err(e) => eprintln!("Failed to create admin user: {:?}", e),
+        Ok(_) => tracing::info!(email = %admin_email, "Admin user created successfully"),
+        Err(e) => tracing::error!(error = ?e, email = %admin_email, "Failed to create admin user during seed"),
     }
 }

@@ -7,6 +7,7 @@ use crate::repositories::user_repo::UserRepository;
 pub struct TurfService;
 
 impl TurfService {
+    #[tracing::instrument(skip(state), fields(user_id, role = ?user_role), name = "turf.get_all")]
     pub async fn get_all_turfs(
         state: &SharedState,
         user_id: i32,
@@ -28,6 +29,7 @@ impl TurfService {
         }
     }
 
+    #[tracing::instrument(skip(state), fields(turf_id = id), name = "turf.get_by_id")]
     pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
         let turf = TurfRepository::find_by_id(state, id).await?;
         match turf {
@@ -36,6 +38,7 @@ impl TurfService {
         }
     }
 
+    #[tracing::instrument(skip(state, manager_password), fields(creator_id, turf_name = name, manager_email = ?manager_email), name = "turf.create")]
     pub async fn create_turf(
         state: &SharedState,
         creator_id: i32,
@@ -72,7 +75,7 @@ impl TurfService {
                     && !matches!(user.role, crate::domain::models::users::Role::Admin)
                 {
                     UserRepository::promote_to_manager_tx(&mut *tx, user.id).await?;
-                    println!("User {} got promoted to Manager", user.id);
+                    tracing::info!(user_id = user.id, "User promoted to Manager role");
                 }
             } else {
                 if let (Some(pass), Some(uname)) = (manager_password, manager_username) {
@@ -88,7 +91,7 @@ impl TurfService {
                     );
 
                     let new_user = UserRepository::insert_user_tx(&mut *tx, user_data).await?;
-                    println!("New user created: {:?}", new_user);
+                    tracing::info!(user_id = new_user.id, "New Manager user created during turf creation");
                     final_manager_id = new_user.id;
                 } else {
                     return Err(AppError::bad_request(error_codes::USER_DETAILS_REQUIRED, "This email is not registered. Please provide manager_password and manager_username to onboard them."));
@@ -105,6 +108,7 @@ impl TurfService {
         Ok(newly_created_turf)
     }
 
+    #[tracing::instrument(skip(state), fields(turf_id, caller_id), name = "turf.update")]
     pub async fn update_turf(
         state: &SharedState,
         turf_id: i32,
@@ -153,7 +157,7 @@ impl TurfService {
                 && !matches!(user.role, crate::domain::models::users::Role::Admin)
             {
                 UserRepository::promote_to_manager_tx(&mut *tx, final_manager_id).await?;
-                println!("User {} got promoted to Manager", final_manager_id);
+                tracing::info!(user_id = final_manager_id, "User promoted to Manager role during turf update");
             }
         }
 
@@ -182,10 +186,7 @@ impl TurfService {
                             crate::domain::models::users::Role::User,
                         )
                         .await?;
-                        println!(
-                            "Old Manager {} demoted to User role after turf reassignment",
-                            old_manager_id
-                        );
+                        tracing::info!(user_id = old_manager_id, "Old Manager demoted to User after turf reassignment");
                     }
                 }
             }
@@ -196,6 +197,7 @@ impl TurfService {
         Ok(updated_turf)
     }
 
+    #[tracing::instrument(skip(state), fields(turf_id = id, role = ?caller_role), name = "turf.delete")]
     pub async fn delete_turf(
         state: &SharedState,
         id: i32,
@@ -228,10 +230,7 @@ impl TurfService {
                         crate::domain::models::users::Role::User,
                     )
                     .await?;
-                    println!(
-                        "User {} demoted to User role after turf deletion",
-                        manager_id
-                    );
+                    tracing::info!(user_id = manager_id, "Manager demoted to User after turf deletion");
                 }
             }
         }
