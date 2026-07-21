@@ -4,6 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
+use tracing::Span;
 
 #[derive(Serialize)]
 pub struct ErrorResponse {
@@ -80,6 +81,35 @@ pub mod error_codes {
 // if a function returns impl IntoResponse, then it can return an AppError as it implements IntoResponse trait.
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let status = self.status;
+        let is_server_error = status.is_server_error();
+
+        // Record the error into the current span so it appears in Honeycomb
+        // regardless of which handler or service produced it.
+        let span = Span::current();
+        span.record("error.code", self.code);
+        span.record("error.message", self.message);
+        span.record("http.status_code", status.as_u16());
+
+        if is_server_error {
+            // Mark the span as failed — Honeycomb will highlight it as an error trace
+            tracing::error!(
+                error.code = self.code,
+                error.message = self.message,
+                http.status_code = status.as_u16(),
+                "Request failed with server error"
+            );
+        } else {
+            // 4xx are expected client errors — log at WARN so they are visible
+            // but don't pollute the error rate metric
+            tracing::warn!(
+                error.code = self.code,
+                error.message = self.message,
+                http.status_code = status.as_u16(),
+                "Request rejected with client error"
+            );
+        }
+
         let body = ErrorResponse {
             error: ErrorBody {
                 code: self.code.to_string(),
@@ -87,7 +117,7 @@ impl IntoResponse for AppError {
             },
         };
 
-        (self.status, Json(body)).into_response()
+        (status, Json(body)).into_response()
     }
 }
 

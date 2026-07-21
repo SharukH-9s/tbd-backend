@@ -30,7 +30,7 @@ async fn execute_cleanup(state: &SharedState) {
                 Ok(n) => {
                     tracing::info!("[cleanup] Reset {} expired pending slot(s) to Available", n)
                 }
-                Err(e) => tracing::error!("[cleanup] Failed to reset pending slots: {:?}", e),
+                Err(e) => tracing::error!(error = ?e, "[cleanup] Failed to reset pending slots"),
             }
 
             // Step 2: Delete the orphaned Unpaid booking records
@@ -40,7 +40,7 @@ async fn execute_cleanup(state: &SharedState) {
                     tracing::info!("[cleanup] Deleted {} orphaned Unpaid booking record(s)", n)
                 }
                 Err(e) => {
-                    tracing::error!("[cleanup] Failed to delete orphaned bookings: {:?}", e)
+                    tracing::error!(error = ?e, "[cleanup] Failed to delete orphaned bookings")
                 }
             }
         }
@@ -55,8 +55,8 @@ async fn execute_cleanup(state: &SharedState) {
             // Redis is down or blipping.
             // Log the error and skip this run so we don't spam the DB during Redis downtime.
             tracing::error!(
-                "[cleanup] Redis connection error during lock check: {:?}",
-                e
+                error = ?e,
+                "[cleanup] Redis connection error during lock check"
             );
         }
     }
