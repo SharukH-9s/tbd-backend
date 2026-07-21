@@ -11,6 +11,7 @@ use chrono_tz::Asia::Dhaka;
 pub struct GameService;
 
 impl GameService {
+    #[tracing::instrument(skip(state), fields(turf_id, caller_id, game_name = %name), name = "game.create")]
     pub async fn create_game(
         state: &SharedState,
         turf_id: i32,
@@ -46,6 +47,7 @@ impl GameService {
         Ok(newly_created_game)
     }
 
+    #[tracing::instrument(skip(state), fields(turf_id), name = "game.get_for_turf")]
     pub async fn get_games_for_turf(
         state: &SharedState,
         turf_id: i32,
@@ -59,6 +61,7 @@ impl GameService {
         GameRepository::find_all_games_by_turf_id(state, turf_id).await
     }
 
+    #[tracing::instrument(skip(state), fields(game_id), name = "game.get_by_id")]
     pub async fn get_game_by_id(state: &SharedState, game_id: i32) -> Result<Game, AppError> {
         let mut conn = state.db.acquire().await.map_err(|_| AppError::internal(error_codes::DATABASE_ERROR, "Failed to acquire database connection"))?;
 
@@ -68,6 +71,7 @@ impl GameService {
         }
     }
 
+    #[tracing::instrument(skip(state), fields(game_id, caller_id), name = "game.update")]
     pub async fn update_game(
         state: &SharedState,
         game_id: i32,
@@ -155,6 +159,7 @@ impl GameService {
         Ok(updated_game)
     }
 
+    #[tracing::instrument(skip(state), fields(game_id, caller_id), name = "game.delete")]
     pub async fn delete_game(
         state: &SharedState,
         game_id: i32,

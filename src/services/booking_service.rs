@@ -235,6 +235,7 @@ impl BookingService {
     }
 
     /// Fetch all bookings for a user (regular user sees only their bookings).
+    #[tracing::instrument(skip(state), fields(user_id), name = "booking.get_user_bookings")]
     pub async fn get_user_bookings(
         state: &SharedState,
         user_id: i32,
@@ -245,6 +246,7 @@ impl BookingService {
     /// Fetch all bookings for a specific game.
     /// For managers: verifies they own the turf that the game belongs to.
     /// For admins: allows access to all games.
+    #[tracing::instrument(skip(state), fields(game_id, caller_id, is_manager), name = "booking.get_game_bookings")]
     pub async fn get_game_bookings(
         state: &SharedState,
         game_id: i32,

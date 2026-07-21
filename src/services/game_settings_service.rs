@@ -13,6 +13,7 @@ pub struct GameSettingsService;
 impl GameSettingsService {
     /// Create a new settings template for a game.
     /// Only the turf's manager or an Admin may add templates.
+    #[tracing::instrument(skip(state), fields(game_id, caller_id, label = %label), name = "settings.create")]
     pub async fn create_settings(
         state: &SharedState,
         game_id: i32,
@@ -61,6 +62,7 @@ impl GameSettingsService {
 
     /// List all settings templates for a game.
     /// Public — no auth required (used to populate the frontend dropdown).
+    #[tracing::instrument(skip(state), fields(game_id), name = "settings.get_for_game")]
     pub async fn get_settings_for_game(
         state: &SharedState,
         game_id: i32,
@@ -79,6 +81,7 @@ impl GameSettingsService {
     /// Update an existing settings template.
     /// Only the turf's manager or Admin may update templates.
     /// All fields are optional — omitted fields keep their existing value.
+    #[tracing::instrument(skip(state), fields(settings_id, caller_id), name = "settings.update")]
     pub async fn update_settings(
         state: &SharedState,
         settings_id: i32,
@@ -137,6 +140,7 @@ impl GameSettingsService {
 
     /// Delete a settings template by ID.
     /// Only the turf's manager or Admin may delete templates.
+    #[tracing::instrument(skip(state), fields(settings_id, caller_id), name = "settings.delete")]
     pub async fn delete_settings(
         state: &SharedState,
         settings_id: i32,

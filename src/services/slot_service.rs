@@ -27,6 +27,7 @@ impl SlotService {
     ///   8. Insert slot
     ///   9. If initial_status == "Booked": validate contact fields, insert booking_repo record
     ///  10. Commit transaction
+    #[tracing::instrument(skip(state), fields(game_id, settings_id, caller_id, slot_date = %slot_date), name = "slot.create")]
     pub async fn create_slot(
         state: &SharedState,
         game_id: i32,
@@ -180,6 +181,7 @@ impl SlotService {
 
     /// Returns all slots for a specific game on a business day.
     /// No auth required — used for the manager's slot calendar view.
+    #[tracing::instrument(skip(state), fields(game_id, slot_date = %slot_date), name = "slot.get_for_game_on_date")]
     pub async fn get_slots_for_game_on_date(
         state: &SharedState,
         game_id: i32,
@@ -250,6 +252,7 @@ impl SlotService {
     ///   6. Insert slot
     ///   7. If initial_status == "Booked": validate contact fields, insert booking record
     ///   8. Commit transaction
+    #[tracing::instrument(skip(state), fields(game_id, caller_id, slot_date = %slot_date), name = "slot.create_custom")]
     pub async fn create_custom_slot(
         state: &SharedState,
         game_id: i32,
@@ -415,6 +418,7 @@ impl SlotService {
 
     /// Deletes a single slot by ID. Only Available slots may be deleted.
     /// Pending/Booked slots are financial records and must never be deleted.
+    #[tracing::instrument(skip(state), fields(slot_id, caller_id), name = "slot.delete")]
     pub async fn delete_slot(
         state: &SharedState,
         slot_id: i32,
