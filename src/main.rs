@@ -229,73 +229,37 @@ async fn main() {
             api::middleware::rate_limiter::auth_rate_limiter, // Passes the incoming Request directly into the auth_rate_limiter function
         ));
 
-    let api_routes = Router::new()
+    let public_api_routes = Router::new()
         .route(
             "/turfs",
-            axum::routing::get(api::handlers::turf_handlers::get_all_turfs::get_all_turfs)
-                .post(api::handlers::turf_handlers::create_turf::create_turf),
+            axum::routing::get(api::handlers::turf_handlers::get_all_turfs::get_all_turfs),
         )
         .route(
             "/turfs/{id}",
-            axum::routing::get(api::handlers::turf_handlers::get_turf::get_a_turf_by_id)
-                .put(api::handlers::turf_handlers::update_turf::update_turf_handler)
-                .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
+            axum::routing::get(api::handlers::turf_handlers::get_turf::get_a_turf_by_id),
         )
         .route(
             "/turfs/{id}/games",
-            axum::routing::post(api::handlers::game_handlers::create_game::create_game_handler)
-                .get(api::handlers::game_handlers::get_games::get_games_handler),
+            axum::routing::get(api::handlers::game_handlers::get_games::get_games_handler),
         )
         .route(
             "/games/{id}",
-            axum::routing::get(
-                api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler,
-            )
-            .put(api::handlers::game_handlers::update_game::update_game_handler)
-            .delete(api::handlers::game_handlers::delete_game::delete_game_handler),
+            axum::routing::get(api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler),
         )
         .route(
             "/games/{id}/settings",
-            axum::routing::post(
-                api::handlers::game_settings_handlers::create_settings::create_settings_handler,
-            )
-            .get(api::handlers::game_settings_handlers::get_settings::get_settings_handler),
-        )
-        .route(
-            "/settings/{id}",
-            axum::routing::put(
-                api::handlers::game_settings_handlers::update_settings::update_settings_handler,
-            )
-            .delete(
-                api::handlers::game_settings_handlers::delete_settings::delete_settings_handler,
-            ),
+            axum::routing::get(api::handlers::game_settings_handlers::get_settings::get_settings_handler),
         )
         .route(
             "/games/{id}/slots",
-            axum::routing::post(api::handlers::slot_handlers::create_slot::create_slot_handler)
-                .get(api::handlers::slot_handlers::get_slots::get_slots_handler),
+            axum::routing::get(api::handlers::slot_handlers::get_slots::get_slots_handler),
         )
-        .route(
-            "/games/{id}/slots/custom",
-            axum::routing::post(
-                api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler,
-            ),
-        )
-        .route(
-            "/games/{id}/bookings",
-            axum::routing::get(
-                api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler,
-            ),
-        )
-        .route(
-            "/slots/{id}",
-            axum::routing::delete(api::handlers::slot_handlers::delete_slot::delete_slot_handler),
-        )
+        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_auth));
+
+    let user_api_routes = Router::new()
         .route(
             "/slots/{id}/book",
-            axum::routing::post(
-                api::handlers::booking_handlers::initiate_booking::initiate_booking_handler,
-            ),
+            axum::routing::post(api::handlers::booking_handlers::initiate_booking::initiate_booking_handler),
         )
         .route(
             "/slots/{id}/pay/advance",
@@ -307,15 +271,7 @@ async fn main() {
         )
         .route(
             "/bookings/{id}",
-            axum::routing::delete(
-                api::handlers::booking_handlers::cancel_booking::cancel_booking_handler,
-            ),
-        )
-        .route(
-            "/bookings/{id}/payment",
-            axum::routing::patch(
-                api::handlers::booking_handlers::update_payment::update_payment_handler,
-            ),
+            axum::routing::delete(api::handlers::booking_handlers::cancel_booking::cancel_booking_handler),
         )
         .route(
             "/users/{id}",
@@ -324,16 +280,72 @@ async fn main() {
         )
         .route(
             "/users/{id}/bookings",
-            axum::routing::get(
-                api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler,
-            ),
+            axum::routing::get(api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler),
         )
         .route(
             "/users/{id}/turfs",
-            axum::routing::get(
-                api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
-            ),
+            axum::routing::get(api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler),
         )
+        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_auth));
+
+    let manager_api_routes = Router::new()
+        .route(
+            "/turfs/{id}/games",
+            axum::routing::post(api::handlers::game_handlers::create_game::create_game_handler),
+        )
+        .route(
+            "/games/{id}",
+            axum::routing::put(api::handlers::game_handlers::update_game::update_game_handler)
+                .delete(api::handlers::game_handlers::delete_game::delete_game_handler),
+        )
+        .route(
+            "/games/{id}/settings",
+            axum::routing::post(api::handlers::game_settings_handlers::create_settings::create_settings_handler),
+        )
+        .route(
+            "/settings/{id}",
+            axum::routing::put(api::handlers::game_settings_handlers::update_settings::update_settings_handler)
+                .delete(api::handlers::game_settings_handlers::delete_settings::delete_settings_handler),
+        )
+        .route(
+            "/games/{id}/slots",
+            axum::routing::post(api::handlers::slot_handlers::create_slot::create_slot_handler),
+        )
+        .route(
+            "/games/{id}/slots/custom",
+            axum::routing::post(api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler),
+        )
+        .route(
+            "/slots/{id}",
+            axum::routing::delete(api::handlers::slot_handlers::delete_slot::delete_slot_handler),
+        )
+        .route(
+            "/games/{id}/bookings",
+            axum::routing::get(api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler),
+        )
+        .route(
+            "/bookings/{id}/payment",
+            axum::routing::patch(api::handlers::booking_handlers::update_payment::update_payment_handler),
+        )
+        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_manager_or_admin));
+
+    let admin_api_routes = Router::new()
+        .route(
+            "/turfs",
+            axum::routing::post(api::handlers::turf_handlers::create_turf::create_turf),
+        )
+        .route(
+            "/turfs/{id}",
+            axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
+                .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
+        )
+        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_admin));
+
+    let api_routes = Router::new()
+        .merge(public_api_routes)
+        .merge(user_api_routes)
+        .merge(manager_api_routes)
+        .merge(admin_api_routes)
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rate_limiter::api_rate_limiter,

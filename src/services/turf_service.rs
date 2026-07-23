@@ -197,16 +197,11 @@ impl TurfService {
         Ok(updated_turf)
     }
 
-    #[tracing::instrument(skip(state), fields(turf_id = id, role = ?caller_role), name = "turf.delete")]
+    #[tracing::instrument(skip(state), fields(turf_id = id), name = "turf.delete")]
     pub async fn delete_turf(
         state: &SharedState,
         id: i32,
-        caller_role: crate::domain::models::users::Role,
     ) -> Result<(), AppError> {
-        // Only Admin can delete turfs
-        if !matches!(caller_role, crate::domain::models::users::Role::Admin) {
-            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only administrators can delete turfs"));
-        }
 
         let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
 

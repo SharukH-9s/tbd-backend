@@ -4,7 +4,7 @@ use crate::domain::dtos::responses::SuccessResponse;
 use crate::domain::errors::AppError;
 use crate::domain::models::turfs::CreateTurfRequest;
 use crate::services::turf_service::TurfService;
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{Extension, Json, extract::State, http::StatusCode, response::IntoResponse};
 
 /*pub struct CreateTurfRequest {
     pub name: String,
@@ -19,17 +19,9 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 pub async fn create_turf(
     State(database): State<SharedState>,
-    claim: Claims, // Extractor to get the user ID and Role from the JWT token
+    Extension(claim): Extension<Claims>, // Read pre-decoded claims from middleware!
     Json(payload): Json<CreateTurfRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // RBAC: Only Admin can create turfs
-    if !matches!(claim.role, crate::domain::models::users::Role::Admin) {
-        return Err(AppError {
-            code: "UNAUTHORIZED",
-            message: "Only the Administrator can create turfs",
-            status: StatusCode::UNAUTHORIZED,
-        });
-    }
 
     // We pass the parsed data to the service layer.
     // Notice how we use `claim.sub` as the creator_id: the user who is logged in!

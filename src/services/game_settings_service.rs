@@ -42,7 +42,7 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to add settings to this game"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to add settings to this game"));
         }
 
         // 4. Insert the template
@@ -115,7 +115,7 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to update these settings"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to update these settings"));
         }
 
         // 4. Merge fields — omitted fields fall back to existing values
@@ -171,7 +171,7 @@ impl GameSettingsService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::SETTINGS_ACCESS_DENIED, "You do not have permission to delete these settings"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to delete these settings"));
         }
 
         // 4. Delete

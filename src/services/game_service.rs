@@ -34,7 +34,7 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to add games to this turf"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to add games to this turf"));
         }
 
         // 3. Insert game
@@ -100,7 +100,7 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to update this game"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to update this game"));
         }
 
         // 4. Merge fields (keep existing value if caller omitted the field)
@@ -185,7 +185,7 @@ impl GameService {
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::GAME_ACCESS_DENIED, "You do not have permission to delete this game"));
+            return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to delete this game"));
         }
 
         // 4. Protection: Prevent deletion if active bookings exist

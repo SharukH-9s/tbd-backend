@@ -54,9 +54,7 @@ pub mod error_codes {
     pub const FORBIDDEN: &str = "FORBIDDEN";
     pub const MANAGER_ALREADY_ASSIGNED: &str = "MANAGER_ALREADY_ASSIGNED";
     pub const GAME_NOT_FOUND: &str = "GAME_NOT_FOUND";
-    pub const GAME_ACCESS_DENIED: &str = "GAME_ACCESS_DENIED";
     pub const SETTINGS_NOT_FOUND: &str = "SETTINGS_NOT_FOUND";
-    pub const SETTINGS_ACCESS_DENIED: &str = "SETTINGS_ACCESS_DENIED";
 
     // Slot specific
     pub const SLOT_NOT_FOUND: &str = "SLOT_NOT_FOUND";
