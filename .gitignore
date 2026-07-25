@@ -7,3 +7,10 @@ target
 !schema.sql
 debug.log
 frontend/
+
+# Local configuration, design tools, and telemetry experiments
+Upgrades/
+load_tests/
+graphify-out/
+config.alloy
+monitoring/config.alloy

@@ -43,7 +43,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum by (method, path) (rate(http_requests_total{service=\"tbd-backend\"}[1m]))",
+          "expr": "sum by (method, path) (rate(http_requests_total[1m]))",
           "legendFormat": "{{method}} {{path}}",
           "refId": "A"
         }
@@ -75,7 +75,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(rate(http_requests_total{service=\"tbd-backend\",status=~\"4..|5..\"}[1m])) / sum(rate(http_requests_total{service=\"tbd-backend\"}[1m]))",
+          "expr": "sum(rate(http_requests_total{status=~\"4..|5..\"}[1m])) / sum(rate(http_requests_total[1m]))",
           "legendFormat": "Error rate",
           "refId": "A"
         }
@@ -98,19 +98,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "histogram_quantile(0.50, sum by (le, path) (rate(http_request_duration_seconds_bucket{service=\"tbd-backend\"}[1m])))",
+          "expr": "histogram_quantile(0.50, sum by (le, path) (rate(http_request_duration_seconds_bucket[1m])))",
           "legendFormat": "p50 {{path}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket{service=\"tbd-backend\"}[1m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket[1m])))",
           "legendFormat": "p95 {{path}}",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "histogram_quantile(0.99, sum by (le, path) (rate(http_request_duration_seconds_bucket{service=\"tbd-backend\"}[1m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, path) (rate(http_request_duration_seconds_bucket[1m])))",
           "legendFormat": "p99 {{path}}",
           "refId": "C"
         }
@@ -133,13 +133,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "db_pool_connections_active{service=\"tbd-backend\"}",
+          "expr": "db_pool_connections_active",
           "legendFormat": "Active",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "db_pool_connections_idle{service=\"tbd-backend\"}",
+          "expr": "db_pool_connections_idle",
           "legendFormat": "Idle",
           "refId": "B"
         }
@@ -162,7 +162,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(http_requests_total{service=\"tbd-backend\"})",
+          "expr": "sum(http_requests_total)",
           "legendFormat": "Total",
           "refId": "A"
         }
@@ -192,7 +192,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(http_requests_total{service=\"tbd-backend\",status=~\"4..\"})",
+          "expr": "sum(http_requests_total{status=~\"4..\"})",
           "legendFormat": "4xx",
           "refId": "A"
         }
@@ -221,7 +221,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(http_requests_total{service=\"tbd-backend\",status=~\"5..\"})",
+          "expr": "sum(http_requests_total{status=~\"5..\"})",
           "legendFormat": "5xx",
           "refId": "A"
         }
@@ -251,7 +251,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum(http_requests_total{service=\"tbd-backend\",path=\"/login\",status=\"429\"})",
+          "expr": "sum(http_requests_total{path=\"/login\",status=\"429\"})",
           "legendFormat": "Rate-limited",
           "refId": "A"
         }
@@ -277,7 +277,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sum by (status) (http_requests_total{service=\"tbd-backend\"})",
+          "expr": "sum by (status) (http_requests_total)",
           "legendFormat": "HTTP {{status}}",
           "refId": "A"
         }
@@ -296,7 +296,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-          "expr": "sort_desc(avg by (path) (rate(http_request_duration_seconds_sum{service=\"tbd-backend\"}[5m]) / rate(http_request_duration_seconds_count{service=\"tbd-backend\"}[5m])) > 0)",
+          "expr": "sort_desc(avg by (path) (rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])) > 0)",
           "legendFormat": "{{path}}",
           "refId": "A",
           "instant": true,
