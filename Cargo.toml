@@ -31,5 +31,5 @@ opentelemetry-otlp = { version = "0.32.0", features = ["reqwest-blocking-client"
 tracing-opentelemetry = "0.33.0"
 metrics = "0.24"
 metrics-exporter-prometheus = "0.16"
-lapin = "2"
+lapin = { version = "2", default-features = false, features = ["native-tls"] }
 anyhow = "1"
