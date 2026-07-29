@@ -206,7 +206,55 @@ impl BookingService {
         // 2. Mark slot as Booked
         SlotRepository::mark_booked_tx(&mut *tx, slot_id).await?;
 
-        // 3. Commit
+        // 3. Write outbox event — atomic with the payment update above.
+        //    Fetch user email and slot start_time in a single JOIN query while still in tx.
+        let event_row = sqlx::query!(
+            r#"
+            SELECT u.email  AS user_email,
+                   s.start_time::TEXT AS "slot_start!: String"
+            FROM   users u
+            JOIN   slots s ON s.id = $1
+            WHERE  u.id = $2
+            "#,
+            slot_id,
+            user_id,
+        )
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to fetch outbox data: {e}").into_boxed_str())))?;
+
+        if let Some(ev) = event_row {
+            // Insert first to get the Postgres-generated UUID, then use it as outbox_id
+            // inside the payload so the worker's idempotency key (processed_jobs.outbox_id)
+            // ties back to the correct outbox row.
+            let outbox_id = sqlx::query_scalar!(
+                "INSERT INTO outbox (event_type, payload)
+                 VALUES ('BookingCreated', '{}'::jsonb)
+                 RETURNING id",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to write outbox event: {e}").into_boxed_str())))?;
+
+            let payload = serde_json::json!({
+                "outbox_id":    outbox_id,
+                "booking_id":   updated_booking.id,
+                "user_email":   ev.user_email,
+                "contact_name": updated_booking.contact_name,
+                "slot_start":   ev.slot_start,
+            });
+
+            sqlx::query!(
+                "UPDATE outbox SET payload = $1 WHERE id = $2",
+                payload,
+                outbox_id,
+            )
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to update outbox payload: {e}").into_boxed_str())))?;
+        }
+
+        // 4. Commit — booking payment, slot status, and outbox row all land together.
         tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize payment"))?;
 
         Ok(updated_booking)

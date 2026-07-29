@@ -7,7 +7,7 @@ edition = "2021"
 axum = { version = "0.8", features = ["http2", "macros"] }
 serde = { version = "1.0.228", features = ["derive"] }
 tokio = { version = "1.49.0", features = ["full"] }
-uuid = { version = "1.19.0", features = ["v4", "fast-rng"] }
+uuid = { version = "1.19.0", features = ["v4", "fast-rng", "serde"] }
 bcrypt = "0.15"
 jsonwebtoken = "9"
 chrono = { version = "0.4", features = ["serde"] }
