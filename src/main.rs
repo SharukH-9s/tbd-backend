@@ -31,6 +31,29 @@ async fn ping() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok" }))
 }
 
+async fn test_amqp() -> impl axum::response::IntoResponse {
+    use std::time::Duration;
+    use tokio::net::TcpStream;
+    use tokio::time::timeout;
+
+    let target = "beaver.rmq.cloudamqp.com:5671";
+    
+    match timeout(Duration::from_secs(5), TcpStream::connect(target)).await {
+        Ok(Ok(_)) => (
+            axum::http::StatusCode::OK,
+            format!("SUCCESS: Successfully opened TCP connection to {}", target),
+        ),
+        Ok(Err(e)) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("FAILURE: Connection failed: {}", e),
+        ),
+        Err(_) => (
+            axum::http::StatusCode::GATEWAY_TIMEOUT,
+            format!("FAILURE: Connection to {} timed out after 5 seconds", target),
+        ),
+    }
+}
+
 /// Deep health check handler.
 /// Runs `SELECT 1` against the database to prove the connection pool is alive.
 /// Returns `200 OK` if healthy, or `503 Service Unavailable` if the DB is unreachable or saturated.
@@ -369,6 +392,7 @@ async fn main() {
     let final_router = Router::new()
         .route("/health", get(health_check))
         .route("/ping", get(ping))
+        .route("/test-amqp", get(test_amqp))
         // Prometheus scrape endpoint — guarded by an optional bearer token.
         // Set METRICS_BEARER_TOKEN in .env to enable auth; leave unset for open local access.
         .route(
