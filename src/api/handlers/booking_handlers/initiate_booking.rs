@@ -17,7 +17,7 @@ use axum::{
 /// The user must proceed to pay (advance or full) before the timer expires.
 pub async fn initiate_booking_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(slot_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let booking = BookingService::initiate_booking(&state, slot_id, claim.sub).await?;

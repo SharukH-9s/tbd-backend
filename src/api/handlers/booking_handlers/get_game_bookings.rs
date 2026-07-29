@@ -12,7 +12,7 @@ use axum::response::IntoResponse;
 pub async fn get_game_bookings_handler(
     State(database): State<SharedState>,
     Path(game_id): Path<i32>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
     let caller_id = claim.sub;
     let role = &claim.role;

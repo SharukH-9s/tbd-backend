@@ -12,7 +12,7 @@ use axum::{Json, extract::{Path, State}, http::StatusCode, response::IntoRespons
 /// Only the turf's manager or an Admin may delete slots.
 pub async fn delete_slot_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(slot_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     SlotService::delete_slot(

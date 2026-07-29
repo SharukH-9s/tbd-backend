@@ -190,6 +190,16 @@ async fn main() {
     // Background worker: publish SQLx connection pool gauges to Prometheus every 5 seconds.
     tokio::spawn(api::middleware::metrics::track_database_metrics(shared_state.db.clone()));
 
+    // Read CloudAMQP URL — required at startup
+    let amqp_url = std::env::var("AMQP_URL")
+        .expect("AMQP_URL must be set — add it to .env (local) or Render env vars (production)");
+
+    // Background relay task: polls outbox and publishes to CloudAMQP
+    tokio::spawn(crate::services::relay::run_relay(
+        shared_state.db.clone(),
+        amqp_url,
+    ));
+
     let cors = CorsLayer::new()
         .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
             .parse::<HeaderValue>()

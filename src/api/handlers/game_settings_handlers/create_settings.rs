@@ -15,7 +15,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 
 pub async fn create_settings_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(game_id): Path<i32>,
     Json(payload): Json<CreateGameSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {

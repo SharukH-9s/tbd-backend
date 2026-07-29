@@ -9,7 +9,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 /// Mock payment gateway callback that simulates a successful 30% advance payment.
 pub async fn pay_advance_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(slot_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let booking = BookingService::pay_advance(&state, slot_id, claim.sub).await?;

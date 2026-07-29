@@ -12,7 +12,7 @@ use serde_json::json;
 /// Cannot cancel a Fully_Paid booking.
 pub async fn cancel_booking_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(booking_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     BookingService::cancel_booking(&state, booking_id, claim.sub, claim.role).await?;

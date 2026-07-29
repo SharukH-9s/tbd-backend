@@ -7,7 +7,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 
 pub async fn delete_settings_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(settings_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     GameSettingsService::delete_settings(&database, settings_id, claim.sub, claim.role).await?;

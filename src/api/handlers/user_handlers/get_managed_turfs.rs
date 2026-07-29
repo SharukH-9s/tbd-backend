@@ -9,7 +9,7 @@ use axum::{Json, response::IntoResponse};
 
 pub async fn get_managed_turfs_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
     // Extract user_id and role from JWT token
     let user_id = claim.sub;

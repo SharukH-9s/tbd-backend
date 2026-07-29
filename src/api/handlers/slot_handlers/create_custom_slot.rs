@@ -14,7 +14,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 /// If `initial_status` is "Booked", `contact_name` and `contact_phone` are required.
 pub async fn create_custom_slot_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(game_id): Path<i32>,
     Json(payload): Json<CreateCustomSlotRequest>,
 ) -> Result<impl IntoResponse, AppError> {

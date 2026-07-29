@@ -499,6 +499,36 @@ ALTER TABLE ONLY public.turfs
     ADD CONSTRAINT turfs_manager_id_fkey FOREIGN KEY (manager_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
 
+--
+-- TOC entry manually added: outbox
+--
+
+CREATE TABLE public.outbox (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_type TEXT NOT NULL,
+    payload JSONB NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    process_after TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL
+);
+
+CREATE INDEX idx_outbox_queued ON public.outbox (created_at) 
+WHERE status = 'queued' AND (process_after IS NULL OR process_after <= now());
+
+--
+-- TOC entry manually added: processed_jobs
+--
+
+CREATE TABLE public.processed_jobs (
+    outbox_id UUID NOT NULL,
+    consumer TEXT NOT NULL,
+    processed_at TIMESTAMP WITH TIME ZONE DEFAULT now() NOT NULL,
+    PRIMARY KEY (outbox_id, consumer)
+);
+
 -- Completed on 2026-05-07 16:31:34
 
 --

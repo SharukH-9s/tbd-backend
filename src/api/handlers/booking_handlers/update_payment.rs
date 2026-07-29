@@ -14,7 +14,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 /// No payment gateway involved — this is a manual action by the manager.
 pub async fn update_payment_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(booking_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let booking =

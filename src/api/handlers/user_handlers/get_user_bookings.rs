@@ -30,7 +30,7 @@ pub struct BookingDetail {
 pub async fn get_user_bookings_handler(
     State(database): State<SharedState>,
     axum::extract::Path(target_user_id): axum::extract::Path<i32>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
     let caller_id = claim.sub;
     let caller_role = &claim.role;

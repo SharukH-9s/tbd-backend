@@ -9,7 +9,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 /// Mock payment gateway callback that simulates a successful 100% full payment.
 pub async fn pay_full_handler(
     State(state): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(slot_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let booking = BookingService::pay_full(&state, slot_id, claim.sub).await?;

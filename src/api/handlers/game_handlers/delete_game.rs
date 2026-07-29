@@ -7,7 +7,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 
 pub async fn delete_game_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(game_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     GameService::delete_game(&database, game_id, claim.sub, claim.role).await?;

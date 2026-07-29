@@ -15,7 +15,7 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 
 pub async fn update_turf_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(id): Path<i32>,
     Json(payload): Json<UpdateTurfRequest>,
 ) -> Result<impl IntoResponse, AppError> {

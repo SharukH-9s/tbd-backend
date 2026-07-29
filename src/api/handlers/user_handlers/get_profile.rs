@@ -11,7 +11,7 @@ use axum::response::IntoResponse;
 
 pub async fn get_profile_handler(
     State(database): State<SharedState>,
-    claim: Claims,
+    axum::Extension(claim): axum::Extension<Claims>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
     let caller_id = claim.sub;
