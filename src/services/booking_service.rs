@@ -221,7 +221,10 @@ impl BookingService {
         )
         .fetch_optional(&mut *tx)
         .await
-        .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to fetch outbox data: {e}").into_boxed_str())))?;
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to fetch user/slot data for outbox event");
+            AppError::internal(error_codes::INTERNAL_ERROR, "Failed to prepare booking confirmation event")
+        })?;
 
         if let Some(ev) = event_row {
             // Insert first to get the Postgres-generated UUID, then use it as outbox_id
@@ -234,7 +237,10 @@ impl BookingService {
             )
             .fetch_one(&mut *tx)
             .await
-            .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to write outbox event: {e}").into_boxed_str())))?;
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to insert outbox row");
+                AppError::internal(error_codes::INTERNAL_ERROR, "Failed to queue booking confirmation event")
+            })?;
 
             let payload = serde_json::json!({
                 "outbox_id":    outbox_id,
@@ -251,7 +257,10 @@ impl BookingService {
             )
             .execute(&mut *tx)
             .await
-            .map_err(|e| AppError::internal(error_codes::INTERNAL_ERROR, Box::leak(format!("Failed to update outbox payload: {e}").into_boxed_str())))?;
+            .map_err(|e| {
+                tracing::error!(error = %e, "Failed to update outbox payload");
+                AppError::internal(error_codes::INTERNAL_ERROR, "Failed to finalize booking confirmation event")
+            })?;
         }
 
         // 4. Commit — booking payment, slot status, and outbox row all land together.
