@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE outbox\n            SET    status        = 'queued',\n                   retry_count   = retry_count + 1,\n                   last_error    = $2,\n                   process_after = NOW() + (INTERVAL '5 seconds' * POWER(2, retry_count)),\n                   updated_at    = NOW()\n            WHERE  id = $1\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "28be5c0d42a68e3209fcffb81d999449768975904db95ea06eaa7fcd798e1674"
+}
