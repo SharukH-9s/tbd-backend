@@ -6,78 +6,25 @@ mod services;
 
 use crate::config::state::{AppState, SharedState};
 use axum::{
-    Json, Router, middleware,
     http::StatusCode,
-    response::IntoResponse,
+    middleware,
     routing::{get, post},
+    Router,
 };
 use dotenvy::dotenv;
 use http::{HeaderValue, Method};
 use metrics_exporter_prometheus::PrometheusBuilder;
-use opentelemetry::KeyValue;
 use opentelemetry::trace::TracerProvider as _;
+use opentelemetry::KeyValue;
 use opentelemetry_otlp::SpanExporter;
-use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use serde_json::json;
+use opentelemetry_sdk::Resource;
 use sqlx::postgres::PgPoolOptions;
 use std::env;
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::prelude::*;
-
-async fn ping() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok" }))
-}
-
-async fn test_amqp() -> impl axum::response::IntoResponse {
-    use std::time::Duration;
-    use tokio::net::TcpStream;
-    use tokio::time::timeout;
-
-    let target = "beaver.rmq.cloudamqp.com:5671";
-    
-    match timeout(Duration::from_secs(5), TcpStream::connect(target)).await {
-        Ok(Ok(_)) => (
-            axum::http::StatusCode::OK,
-            format!("SUCCESS: Successfully opened TCP connection to {}", target),
-        ),
-        Ok(Err(e)) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("FAILURE: Connection failed: {}", e),
-        ),
-        Err(_) => (
-            axum::http::StatusCode::GATEWAY_TIMEOUT,
-            format!("FAILURE: Connection to {} timed out after 5 seconds", target),
-        ),
-    }
-}
-
-/// Deep health check handler.
-/// Runs `SELECT 1` against the database to prove the connection pool is alive.
-/// Returns `200 OK` if healthy, or `503 Service Unavailable` if the DB is unreachable or saturated.
-/// Load balancers (e.g., Render) should be configured to poll `GET /health` and
-/// remove this instance from the rotation when a non-2xx response is received.
-async fn health_check(
-    axum::extract::State(state): axum::extract::State<SharedState>,
-) -> axum::response::Response {
-    match sqlx::query("SELECT 1").execute(&state.db).await {
-        Ok(_) => (
-            axum::http::StatusCode::OK,
-            Json(json!({ "status": "healthy", "database": "reachable" })),
-        )
-            .into_response(),
-        Err(e) => {
-            tracing::error!(error = %e, "Health check failed — database unreachable");
-            (
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(json!({ "status": "unhealthy", "database": "unreachable" })),
-            )
-                .into_response()
-        }
-    }
-}
 
 #[tokio::main]
 async fn main() {
@@ -211,7 +158,9 @@ async fn main() {
     ));
 
     // Background worker: publish SQLx connection pool gauges to Prometheus every 5 seconds.
-    tokio::spawn(api::middleware::metrics::track_database_metrics(shared_state.db.clone()));
+    tokio::spawn(api::middleware::metrics::track_database_metrics(
+        shared_state.db.clone(),
+    ));
 
     // Read CloudAMQP URL — required at startup
     let amqp_url = std::env::var("AMQP_URL")
@@ -277,22 +226,31 @@ async fn main() {
         )
         .route(
             "/games/{id}",
-            axum::routing::get(api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler),
+            axum::routing::get(
+                api::handlers::game_handlers::get_game_by_id::get_game_by_id_handler,
+            ),
         )
         .route(
             "/games/{id}/settings",
-            axum::routing::get(api::handlers::game_settings_handlers::get_settings::get_settings_handler),
+            axum::routing::get(
+                api::handlers::game_settings_handlers::get_settings::get_settings_handler,
+            ),
         )
         .route(
             "/games/{id}/slots",
             axum::routing::get(api::handlers::slot_handlers::get_slots::get_slots_handler),
         )
-        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_auth));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rbac::require_auth,
+        ));
 
     let user_api_routes = Router::new()
         .route(
             "/slots/{id}/book",
-            axum::routing::post(api::handlers::booking_handlers::initiate_booking::initiate_booking_handler),
+            axum::routing::post(
+                api::handlers::booking_handlers::initiate_booking::initiate_booking_handler,
+            ),
         )
         .route(
             "/slots/{id}/pay/advance",
@@ -304,7 +262,9 @@ async fn main() {
         )
         .route(
             "/bookings/{id}",
-            axum::routing::delete(api::handlers::booking_handlers::cancel_booking::cancel_booking_handler),
+            axum::routing::delete(
+                api::handlers::booking_handlers::cancel_booking::cancel_booking_handler,
+            ),
         )
         .route(
             "/users/{id}",
@@ -313,13 +273,20 @@ async fn main() {
         )
         .route(
             "/users/{id}/bookings",
-            axum::routing::get(api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler),
+            axum::routing::get(
+                api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler,
+            ),
         )
         .route(
             "/users/{id}/turfs",
-            axum::routing::get(api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler),
+            axum::routing::get(
+                api::handlers::user_handlers::get_managed_turfs::get_managed_turfs_handler,
+            ),
         )
-        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_auth));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rbac::require_auth,
+        ));
 
     let manager_api_routes = Router::new()
         .route(
@@ -333,12 +300,18 @@ async fn main() {
         )
         .route(
             "/games/{id}/settings",
-            axum::routing::post(api::handlers::game_settings_handlers::create_settings::create_settings_handler),
+            axum::routing::post(
+                api::handlers::game_settings_handlers::create_settings::create_settings_handler,
+            ),
         )
         .route(
             "/settings/{id}",
-            axum::routing::put(api::handlers::game_settings_handlers::update_settings::update_settings_handler)
-                .delete(api::handlers::game_settings_handlers::delete_settings::delete_settings_handler),
+            axum::routing::put(
+                api::handlers::game_settings_handlers::update_settings::update_settings_handler,
+            )
+            .delete(
+                api::handlers::game_settings_handlers::delete_settings::delete_settings_handler,
+            ),
         )
         .route(
             "/games/{id}/slots",
@@ -346,7 +319,9 @@ async fn main() {
         )
         .route(
             "/games/{id}/slots/custom",
-            axum::routing::post(api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler),
+            axum::routing::post(
+                api::handlers::slot_handlers::create_custom_slot::create_custom_slot_handler,
+            ),
         )
         .route(
             "/slots/{id}",
@@ -354,13 +329,20 @@ async fn main() {
         )
         .route(
             "/games/{id}/bookings",
-            axum::routing::get(api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler),
+            axum::routing::get(
+                api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler,
+            ),
         )
         .route(
             "/bookings/{id}/payment",
-            axum::routing::patch(api::handlers::booking_handlers::update_payment::update_payment_handler),
+            axum::routing::patch(
+                api::handlers::booking_handlers::update_payment::update_payment_handler,
+            ),
         )
-        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_manager_or_admin));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rbac::require_manager_or_admin,
+        ));
 
     let admin_api_routes = Router::new()
         .route(
@@ -372,7 +354,10 @@ async fn main() {
             axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
                 .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
         )
-        .layer(middleware::from_fn_with_state(shared_state.clone(), api::middleware::rbac::require_admin));
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::rbac::require_admin,
+        ));
 
     let api_routes = Router::new()
         .merge(public_api_routes)
@@ -390,9 +375,9 @@ async fn main() {
 
     // Merge all route groups
     let final_router = Router::new()
-        .route("/health", get(health_check))
-        .route("/ping", get(ping))
-        .route("/test-amqp", get(test_amqp))
+        .route("/health", get(api::utils::tester::health_check))
+        .route("/ping", get(api::utils::tester::ping))
+        .route("/test-amqp", get(api::utils::tester::test_amqp))
         // Prometheus scrape endpoint — guarded by an optional bearer token.
         // Set METRICS_BEARER_TOKEN in .env to enable auth; leave unset for open local access.
         .route(
