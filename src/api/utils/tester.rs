@@ -1,8 +1,8 @@
 //! Diagnostic / smoke-test handlers.
 //! Routes: GET /ping, GET /test-amqp, GET /health
 
-use axum::{Json, extract::State, response::IntoResponse};
 use crate::config::state::SharedState;
+use axum::{extract::State, response::IntoResponse, Json};
 use serde_json::json;
 
 /// Liveness probe — always returns 200 OK.
@@ -40,7 +40,10 @@ pub async fn test_amqp() -> impl IntoResponse {
             tracing::warn!(target, "test_amqp: connection timed out after 5s");
             (
                 axum::http::StatusCode::GATEWAY_TIMEOUT,
-                format!("FAILURE: Connection to {} timed out after 5 seconds", target),
+                format!(
+                    "FAILURE: Connection to {} timed out after 5 seconds",
+                    target
+                ),
             )
         }
     }
@@ -51,9 +54,7 @@ pub async fn test_amqp() -> impl IntoResponse {
 /// Returns `200 OK` if healthy, or `503 Service Unavailable` if the DB is unreachable or saturated.
 /// Load balancers (e.g., Render) should be configured to poll `GET /health` and
 /// remove this instance from the rotation when a non-2xx response is received.
-pub async fn health_check(
-    State(state): State<SharedState>,
-) -> axum::response::Response {
+pub async fn health_check(State(state): State<SharedState>) -> axum::response::Response {
     match sqlx::query("SELECT 1").execute(&state.db).await {
         Ok(_) => {
             tracing::debug!("health_check: database reachable");
