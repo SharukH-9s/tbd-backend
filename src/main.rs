@@ -172,6 +172,11 @@ async fn main() {
         amqp_url,
     ));
 
+    // Background keep-alive task: pings tbd-worker every 10 minutes to prevent
+    // Render's free-tier from spinning it down and silencing the consumers.
+    // Requires WORKER_URL in env (e.g. https://tbd-worker.onrender.com).
+    tokio::spawn(api::utils::tester::keep_alive_worker());
+
     let cors = CorsLayer::new()
         .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
             .parse::<HeaderValue>()

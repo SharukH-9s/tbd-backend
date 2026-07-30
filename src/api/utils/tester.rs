@@ -1,4 +1,4 @@
-//! Diagnostic / smoke-test handlers.
+//! Diagnostic / smoke-test handlers and background keep-alive task.
 //! Routes: GET /ping, GET /test-amqp, GET /health
 
 use crate::config::state::SharedState;
@@ -71,6 +71,58 @@ pub async fn health_check(State(state): State<SharedState>) -> axum::response::R
                 Json(json!({ "status": "unhealthy", "database": "unreachable" })),
             )
                 .into_response()
+        }
+    }
+}
+
+/// Background keep-alive task — prevents Render's free-tier from spinning down tbd-worker.
+///
+/// Render spins down free services after 15 minutes of inactivity. This task pings
+/// the worker's `/ping` endpoint every 10 minutes so the worker stays warm and the
+/// RabbitMQ consumers remain active.
+///
+/// Set `WORKER_URL` in your environment (e.g. `https://tbd-worker.onrender.com`).
+/// If the variable is absent the task exits immediately with a warning.
+pub async fn keep_alive_worker() {
+    use std::time::Duration;
+    use tokio::time::interval;
+
+    let base_url = match std::env::var("WORKER_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            tracing::warn!("keep_alive_worker: WORKER_URL not set — keep-alive disabled");
+            return;
+        }
+    };
+
+    let ping_url = format!("{}/ping", base_url.trim_end_matches('/'));
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "keep_alive_worker: failed to build HTTP client — exiting");
+            return;
+        }
+    };
+
+    tracing::info!(url = %ping_url, "keep_alive_worker: started — pinging every 10 minutes");
+
+    let mut ticker = interval(Duration::from_secs(10 * 60));
+    loop {
+        ticker.tick().await; // first tick fires immediately
+        match client.get(&ping_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!(url = %ping_url, status = %resp.status(), "keep_alive_worker: ping OK");
+            }
+            Ok(resp) => {
+                tracing::warn!(url = %ping_url, status = %resp.status(), "keep_alive_worker: ping returned non-2xx");
+            }
+            Err(e) => {
+                tracing::error!(url = %ping_url, error = %e, "keep_alive_worker: ping failed");
+            }
         }
     }
 }
