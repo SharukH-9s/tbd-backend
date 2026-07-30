@@ -1,5 +1,5 @@
 use crate::config::state::SharedState;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::{error_codes, AppError};
 use crate::domain::models::bookings::Booking;
 use crate::repositories::booking_repo::BookingRepository;
 use crate::repositories::slot_repo::SlotRepository;
@@ -24,7 +24,12 @@ impl BookingService {
         slot_id: i32,
         caller_id: i32,
     ) -> Result<Booking, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
+        let mut tx = state.db.begin().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_START_FAILED,
+                "Failed to start database transaction",
+            )
+        })?;
 
         // ── 1. Pending slot limit check ───────────────────────────────────────────────
         let at_limit = BookingRepository::user_has_pending_booking_tx(&mut *tx, caller_id).await?;
@@ -35,7 +40,12 @@ impl BookingService {
         // ── 2. Fetch user's contact info ───────────────────────────────────────────────
         let user = match UserRepository::find_by_id_tx(&mut *tx, caller_id).await? {
             Some(u) => u,
-            None => return Err(AppError::not_found(error_codes::USER_NOT_FOUND, "User profile not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::USER_NOT_FOUND,
+                    "User profile not found",
+                ))
+            }
         };
 
         // ── 3. Atomically lock the slot as Pending ──────────────────────────────────
@@ -45,14 +55,24 @@ impl BookingService {
 
         // ── 4. Guard: slot not available ───────────────────────────────────────────
         if locked_slot.is_none() {
-            return Err(AppError::conflict(error_codes::SLOT_UNAVAILABLE, "This slot is no longer available. It may have just been booked by someone else."));
+            return Err(AppError::conflict(
+                error_codes::SLOT_UNAVAILABLE,
+                "This slot is no longer available. It may have just been booked by someone else.",
+            ));
         }
 
         // ── 5. Insert the booking record ─────────────────────────────────────────
-        let booking = BookingRepository::insert_tx(&mut *tx, slot_id, caller_id, &user.username, &user.phone).await?;
+        let booking =
+            BookingRepository::insert_tx(&mut *tx, slot_id, caller_id, &user.username, &user.phone)
+                .await?;
 
         // ── 6. Commit ───────────────────────────────────────────────────────────
-        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize booking"))?;
+        tx.commit().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_COMMIT_FAILED,
+                "Failed to finalize booking",
+            )
+        })?;
 
         Ok(booking)
     }
@@ -65,7 +85,11 @@ impl BookingService {
     ///   3. Guard: booking must not be 'Fully_Paid' already → 400 ALREADY_SETTLED if not
     ///   4. Mark booking as 'Fully_Paid'
     ///   5. Commit
-    #[tracing::instrument(skip(state), fields(booking_id, caller_id), name = "booking.update_payment")]
+    #[tracing::instrument(
+        skip(state),
+        fields(booking_id, caller_id),
+        name = "booking.update_payment"
+    )]
     pub async fn update_payment(
         state: &SharedState,
         booking_id: i32,
@@ -75,40 +99,71 @@ impl BookingService {
         use crate::repositories::game_repo::GameRepository;
         use crate::repositories::turf_repo::TurfRepository;
 
-        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
+        let mut tx = state.db.begin().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_START_FAILED,
+                "Failed to start database transaction",
+            )
+        })?;
 
         // ── 1. Fetch the booking ─────────────────────────────────────────────
         let booking = match BookingRepository::find_by_id_tx(&mut *tx, booking_id).await? {
             Some(b) => b,
-            None => return Err(AppError::not_found(error_codes::BOOKING_NOT_FOUND, "Booking not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::BOOKING_NOT_FOUND,
+                    "Booking not found",
+                ))
+            }
         };
 
         // ── 2. Fetch slot → game → turf for ownership check ──────────────────
         let slot = match SlotRepository::find_by_id_tx(&mut *tx, booking.slot_id).await? {
             Some(s) => s,
-            None => return Err(AppError::not_found(error_codes::SLOT_NOT_FOUND, "Parent slot not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::SLOT_NOT_FOUND,
+                    "Parent slot not found",
+                ))
+            }
         };
 
         let game = match GameRepository::find_by_id_tx(&mut *tx, slot.game_id).await? {
             Some(g) => g,
-            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Parent game not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::GAME_NOT_FOUND,
+                    "Parent game not found",
+                ))
+            }
         };
 
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::TURF_NOT_FOUND,
+                    "Parent turf not found",
+                ))
+            }
         };
 
         let is_admin = matches!(caller_role, crate::domain::models::users::Role::Admin);
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only the turf manager or an Admin can settle payments"));
+            return Err(AppError::forbidden(
+                error_codes::FORBIDDEN,
+                "Only the turf manager or an Admin can settle payments",
+            ));
         }
 
         // ── 3. Guard: cannot mark an already settled booking ─────────────────
         if booking.payment_status == "Fully_Paid" {
-            return Err(AppError::bad_request(error_codes::ALREADY_SETTLED, "This booking is already Fully Paid"));
+            return Err(AppError::bad_request(
+                error_codes::ALREADY_SETTLED,
+                "This booking is already Fully Paid",
+            ));
         }
 
         // ── 4. Mark as Fully_Paid ────────────────────────────────────────────
@@ -116,7 +171,12 @@ impl BookingService {
             BookingRepository::mark_fully_paid_by_manager_tx(&mut *tx, booking_id).await?;
 
         // ── 5. Commit ────────────────────────────────────────────────────────
-        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize payment update"))?;
+        tx.commit().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_COMMIT_FAILED,
+                "Failed to finalize payment update",
+            )
+        })?;
 
         Ok(updated)
     }
@@ -140,40 +200,71 @@ impl BookingService {
         use crate::repositories::game_repo::GameRepository;
         use crate::repositories::turf_repo::TurfRepository;
 
-        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
+        let mut tx = state.db.begin().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_START_FAILED,
+                "Failed to start database transaction",
+            )
+        })?;
 
         // ── 1. Fetch the booking ─────────────────────────────────────────────
         let booking = match BookingRepository::find_by_id_tx(&mut *tx, booking_id).await? {
             Some(b) => b,
-            None => return Err(AppError::not_found(error_codes::BOOKING_NOT_FOUND, "Booking not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::BOOKING_NOT_FOUND,
+                    "Booking not found",
+                ))
+            }
         };
 
         // ── 2. Fetch slot → game → turf for ownership check ──────────────────
         let slot = match SlotRepository::find_by_id_tx(&mut *tx, booking.slot_id).await? {
             Some(s) => s,
-            None => return Err(AppError::not_found(error_codes::SLOT_NOT_FOUND, "Parent slot not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::SLOT_NOT_FOUND,
+                    "Parent slot not found",
+                ))
+            }
         };
 
         let game = match GameRepository::find_by_id_tx(&mut *tx, slot.game_id).await? {
             Some(g) => g,
-            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Parent game not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::GAME_NOT_FOUND,
+                    "Parent game not found",
+                ))
+            }
         };
 
         let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
             Some(t) => t,
-            None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Parent turf not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::TURF_NOT_FOUND,
+                    "Parent turf not found",
+                ))
+            }
         };
 
         let is_admin = matches!(caller_role, crate::domain::models::users::Role::Admin);
         let is_owner = turf.manager_id == caller_id;
 
         if !is_admin && !is_owner {
-            return Err(AppError::forbidden(error_codes::FORBIDDEN, "Only the turf manager or an Admin can cancel bookings"));
+            return Err(AppError::forbidden(
+                error_codes::FORBIDDEN,
+                "Only the turf manager or an Admin can cancel bookings",
+            ));
         }
 
         // ── 3. Guard: do not cancel an already settled booking ───────────────
         if booking.payment_status == "Fully_Paid" {
-            return Err(AppError::conflict(error_codes::ALREADY_SETTLED, "A Fully_Paid booking cannot be cancelled. Contact admin if needed."));
+            return Err(AppError::conflict(
+                error_codes::ALREADY_SETTLED,
+                "A Fully_Paid booking cannot be cancelled. Contact admin if needed.",
+            ));
         }
 
         // ── 4. Delete the booking record ───────────────────────────────────────
@@ -183,7 +274,12 @@ impl BookingService {
         SlotRepository::make_available_tx(&mut *tx, booking.slot_id).await?;
 
         // ── 6. Commit ───────────────────────────────────────────────────────
-        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize booking cancellation"))?;
+        tx.commit().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_COMMIT_FAILED,
+                "Failed to finalize booking cancellation",
+            )
+        })?;
 
         Ok(())
     }
@@ -197,11 +293,22 @@ impl BookingService {
         user_id: i32,
         payment_status: &str,
     ) -> Result<Booking, AppError> {
-        let mut tx = state.db.begin().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_START_FAILED, "Failed to start database transaction"))?;
+        let mut tx = state.db.begin().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_START_FAILED,
+                "Failed to start database transaction",
+            )
+        })?;
 
         // 1. Mark booking as paid
-        let updated_booking =
-            BookingRepository::update_payment_status_tx(&mut *tx, payment_status, None, Some(slot_id), Some(user_id)).await?;
+        let updated_booking = BookingRepository::update_payment_status_tx(
+            &mut *tx,
+            payment_status,
+            None,
+            Some(slot_id),
+            Some(user_id),
+        )
+        .await?;
 
         // 2. Mark slot as Booked
         SlotRepository::mark_booked_tx(&mut *tx, slot_id).await?;
@@ -210,8 +317,9 @@ impl BookingService {
         //    Fetch user email and slot start_time in a single JOIN query while still in tx.
         let event_row = sqlx::query!(
             r#"
-            SELECT u.email  AS user_email,
-                   s.start_time::TEXT AS "slot_start!: String"
+            SELECT u.email           AS user_email,
+                   s.start_time::TEXT AS "slot_start!: String",
+                   s.final_price::TEXT AS "amount!: String"
             FROM   users u
             JOIN   slots s ON s.id = $1
             WHERE  u.id = $2
@@ -223,7 +331,10 @@ impl BookingService {
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to fetch user/slot data for outbox event");
-            AppError::internal(error_codes::INTERNAL_ERROR, "Failed to prepare booking confirmation event")
+            AppError::internal(
+                error_codes::INTERNAL_ERROR,
+                "Failed to prepare booking confirmation event",
+            )
         })?;
 
         if let Some(ev) = event_row {
@@ -239,7 +350,10 @@ impl BookingService {
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to insert outbox row");
-                AppError::internal(error_codes::INTERNAL_ERROR, "Failed to queue booking confirmation event")
+                AppError::internal(
+                    error_codes::INTERNAL_ERROR,
+                    "Failed to queue booking confirmation event",
+                )
             })?;
 
             let payload = serde_json::json!({
@@ -248,6 +362,7 @@ impl BookingService {
                 "user_email":   ev.user_email,
                 "contact_name": updated_booking.contact_name,
                 "slot_start":   ev.slot_start,
+                "amount":       ev.amount,
             });
 
             sqlx::query!(
@@ -259,12 +374,20 @@ impl BookingService {
             .await
             .map_err(|e| {
                 tracing::error!(error = %e, "Failed to update outbox payload");
-                AppError::internal(error_codes::INTERNAL_ERROR, "Failed to finalize booking confirmation event")
+                AppError::internal(
+                    error_codes::INTERNAL_ERROR,
+                    "Failed to finalize booking confirmation event",
+                )
             })?;
         }
 
         // 4. Commit — booking payment, slot status, and outbox row all land together.
-        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize payment"))?;
+        tx.commit().await.map_err(|_| {
+            AppError::internal(
+                error_codes::TRANSACTION_COMMIT_FAILED,
+                "Failed to finalize payment",
+            )
+        })?;
 
         Ok(updated_booking)
     }
@@ -296,38 +419,57 @@ impl BookingService {
     pub async fn get_user_bookings(
         state: &SharedState,
         user_id: i32,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError> {
+    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
+    {
         BookingRepository::find_by_user_id_enriched(state, user_id).await
     }
 
     /// Fetch all bookings for a specific game.
     /// For managers: verifies they own the turf that the game belongs to.
     /// For admins: allows access to all games.
-    #[tracing::instrument(skip(state), fields(game_id, caller_id, is_manager), name = "booking.get_game_bookings")]
+    #[tracing::instrument(
+        skip(state),
+        fields(game_id, caller_id, is_manager),
+        name = "booking.get_game_bookings"
+    )]
     pub async fn get_game_bookings(
         state: &SharedState,
         game_id: i32,
         caller_id: i32,
         is_manager: bool,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError> {
+    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
+    {
         use crate::repositories::game_repo::GameRepository;
         use crate::repositories::turf_repo::TurfRepository;
 
         // Fetch the game to get its turf_id
         let game = match GameRepository::find_by_id(state, game_id).await? {
             Some(g) => g,
-            None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::GAME_NOT_FOUND,
+                    "Game not found",
+                ))
+            }
         };
 
         // If manager, verify they own the turf
         if is_manager {
             let turf = match TurfRepository::find_by_id(state, game.turf_id).await? {
                 Some(t) => t,
-                None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
+                None => {
+                    return Err(AppError::not_found(
+                        error_codes::TURF_NOT_FOUND,
+                        "Turf not found",
+                    ))
+                }
             };
 
             if turf.manager_id != caller_id {
-                return Err(AppError::forbidden(error_codes::FORBIDDEN, "You are not the manager of this turf"));
+                return Err(AppError::forbidden(
+                    error_codes::FORBIDDEN,
+                    "You are not the manager of this turf",
+                ));
             }
         }
 
