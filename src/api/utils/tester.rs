@@ -95,7 +95,7 @@ pub async fn keep_alive_worker() {
         }
     };
 
-    let ping_url = format!("{}/ping", base_url.trim_end_matches('/'));
+    let ping_url = format!("{}/healthz", base_url.trim_end_matches('/'));
 
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
