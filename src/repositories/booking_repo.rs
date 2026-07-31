@@ -1,6 +1,6 @@
-use crate::{db_conn_err, db_err};
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::{error_codes, AppError};
 use crate::domain::models::bookings::Booking;
+use crate::{db_conn_err, db_err};
 use axum::http::StatusCode;
 use bigdecimal::BigDecimal;
 
