@@ -66,9 +66,9 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
     )
     .await?;
 
-    // creating email_jobs queue — receives BookingCreated events. then binding to the exchange with "BookingCreated" key
+    // creating booking_jobs queue — receives BookingCreated events. then binding to the exchange
     ch.queue_declare(
-        "email_jobs", // name of the queue
+        "booking_jobs", // name of the queue
         QueueDeclareOptions {
             durable: true,
             ..Default::default()
@@ -77,26 +77,7 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
     )
     .await?;
     ch.queue_bind(
-        "email_jobs",
-        EXCHANGE_NAME,
-        "", // Fanout exchange ignores the routing key
-        QueueBindOptions::default(),
-        FieldTable::default(),
-    )
-    .await?;
-
-    // creating pdf_jobs queue — receives InvoiceRequested events. then binding to the exchange with "InvoiceRequested" key
-    ch.queue_declare(
-        "pdf_jobs", // name of the queue
-        QueueDeclareOptions {
-            durable: true,
-            ..Default::default()
-        },
-        FieldTable::default(),
-    )
-    .await?;
-    ch.queue_bind(
-        "pdf_jobs",
+        "booking_jobs",
         EXCHANGE_NAME,
         "", // Fanout exchange ignores the routing key
         QueueBindOptions::default(),
@@ -167,7 +148,7 @@ async fn process_one(db: &PgPool, ch: &Channel) -> anyhow::Result<()> {
 
     // publish the event/message to the exchange in RabbitMQ.
     // the exchange is "tbd.events", which is declared as a Fanout exchange.
-    // RabbitMQ will broadcast this message to all bound queues ("email_jobs" and "pdf_jobs").
+    // RabbitMQ will broadcast this message to all bound queues (e.g. "booking_jobs").
     let publish_result = ch
         .basic_publish(
             EXCHANGE_NAME,
