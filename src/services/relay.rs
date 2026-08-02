@@ -5,7 +5,7 @@
 use lapin::{
     BasicProperties, Channel, Connection, ConnectionProperties, ExchangeKind,
     options::{BasicPublishOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
-    types::FieldTable,
+    types::{AMQPValue, FieldTable},
 };
 use sqlx::PgPool;
 use std::time::Duration;
@@ -54,7 +54,38 @@ async fn connect_and_run(db: &PgPool, amqp_url: &str) -> Result<(), lapin::Error
 /// Declare the exchange and queues idempotently (durable = true).
 /// RabbitMQ creates them on first run; subsequent runs are no-ops.
 async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
-    // creating the exchange which will route messages/events to the appropriate queues
+    // 1. Declare the DLX (Dead Letter Exchange)
+    ch.exchange_declare(
+        "tbd.dlx",
+        ExchangeKind::Fanout,
+        ExchangeDeclareOptions {
+            durable: true,
+            ..Default::default()
+        },
+        FieldTable::default(),
+    )
+    .await?;
+
+    // 2. Declare the DLQ (Dead Letter Queue) and bind it to DLX
+    ch.queue_declare(
+        "tbd.dlq",
+        QueueDeclareOptions {
+            durable: true,
+            ..Default::default()
+        },
+        FieldTable::default(),
+    )
+    .await?;
+    ch.queue_bind(
+        "tbd.dlq",
+        "tbd.dlx",
+        "",
+        QueueBindOptions::default(),
+        FieldTable::default(),
+    )
+    .await?;
+
+    // 3. Declare the main exchange which will route messages/events to the appropriate queues
     ch.exchange_declare(
         EXCHANGE_NAME,
         ExchangeKind::Fanout,
@@ -66,14 +97,20 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
     )
     .await?;
 
-    // creating booking_jobs queue — receives BookingCreated events. then binding to the exchange
+    // 4. Declare booking_jobs queue with DLX arguments
+    let mut booking_args = FieldTable::default();
+    booking_args.insert(
+        "x-dead-letter-exchange".into(),
+        AMQPValue::LongString("tbd.dlx".into()),
+    );
+
     ch.queue_declare(
         "booking_jobs", // name of the queue
         QueueDeclareOptions {
             durable: true,
             ..Default::default()
         },
-        FieldTable::default(),
+        booking_args,
     )
     .await?;
     ch.queue_bind(
@@ -85,7 +122,7 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
     )
     .await?;
 
-    tracing::info!("Relay: exchange '{}' and queues declared", EXCHANGE_NAME);
+    tracing::info!("Relay: exchanges and queues declared (including DLX)");
     Ok(())
 }
 
