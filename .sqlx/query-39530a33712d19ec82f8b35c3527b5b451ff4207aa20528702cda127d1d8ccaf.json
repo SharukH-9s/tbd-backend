@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, game_id, settings_id, label, start_time, end_time,\n                    final_price, status, pending_until, created_at\n             FROM slots\n             WHERE game_id = $1\n               AND start_time >= $2\n               AND start_time < $3\n             ORDER BY start_time ASC",
+  "query": "UPDATE slots SET status = 'Available', pending_until = NULL\n             WHERE id = $1\n             RETURNING id, game_id, settings_id, label, start_time, end_time,\n                       final_price, status as \"status: _\", pending_until, created_at",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,7 @@
       },
       {
         "ordinal": 7,
-        "name": "status",
+        "name": "status: _",
         "type_info": "Text"
       },
       {
@@ -56,9 +56,7 @@
     ],
     "parameters": {
       "Left": [
-        "Int4",
-        "Timestamptz",
-        "Timestamptz"
+        "Int4"
       ]
     },
     "nullable": [
@@ -74,5 +72,5 @@
       false
     ]
   },
-  "hash": "528d349dfd0016b3d123f17fb12c5b17a5203effc9914465155681b817654b63"
+  "hash": "39530a33712d19ec82f8b35c3527b5b451ff4207aa20528702cda127d1d8ccaf"
 }

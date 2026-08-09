@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT b.id, b.slot_id, b.payment_status, b.booking_time,\n                    b.contact_name, b.contact_phone,\n                    t.name as turf_name, g.name as game_name,\n                    s.final_price, s.start_time, s.end_time,\n                    u.username as \"username?\", u.phone as \"phone?\"\n             FROM bookings b\n             JOIN slots s ON b.slot_id = s.id\n             JOIN games g ON s.game_id = g.id\n             JOIN turfs t ON g.turf_id = t.id\n             LEFT JOIN users u ON b.user_id = u.id\n             WHERE g.id = $1\n             ORDER BY b.booking_time DESC",
+  "query": "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,\n                    b.contact_name, b.contact_phone,\n                    t.name as turf_name, g.name as game_name,\n                    s.final_price, s.start_time, s.end_time,\n                    u.username as \"username?\", u.phone as \"phone?\"\n             FROM bookings b\n             JOIN slots s ON b.slot_id = s.id\n             JOIN games g ON s.game_id = g.id\n             JOIN turfs t ON g.turf_id = t.id\n             LEFT JOIN users u ON b.user_id = u.id\n             WHERE b.user_id = $1\n             ORDER BY b.booking_time DESC",
   "describe": {
     "columns": [
       {
@@ -15,7 +15,7 @@
       },
       {
         "ordinal": 2,
-        "name": "payment_status",
+        "name": "payment_status: PaymentStatus",
         "type_info": "Text"
       },
       {
@@ -90,5 +90,5 @@
       false
     ]
   },
-  "hash": "eca73849218e16b64ce59b4b83d25929888b48115ae0a436bd4d054e7e3de071"
+  "hash": "fa037c25ef23260b05dbc48934fe20e38d3e35065981ad81f30d7d5536c330c0"
 }

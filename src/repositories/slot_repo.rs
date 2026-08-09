@@ -1,7 +1,7 @@
 use crate::{db_err};
 use crate::config::state::SharedState;
 use crate::domain::errors::AppError;
-use crate::domain::models::slots::Slot;
+use crate::domain::models::slots::{Slot, SlotStatus};
 use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 
@@ -45,13 +45,13 @@ impl SlotRepository {
     ) -> Result<Vec<Slot>, AppError> {
         sqlx::query_as!(
             Slot,
-            "SELECT id, game_id, settings_id, label, start_time, end_time,
-                    final_price, status, pending_until, created_at
+            r#"SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status as "status: _", pending_until, created_at
              FROM slots
              WHERE game_id = $1
                AND start_time >= $2
                AND start_time < $3
-             ORDER BY start_time ASC",
+             ORDER BY start_time ASC"#,
             game_id,
             business_day_start,
             business_day_end,
@@ -72,12 +72,12 @@ impl SlotRepository {
     ) -> Result<Vec<Slot>, AppError> {
         sqlx::query_as!(
             Slot,
-            "SELECT id, game_id, settings_id, label, start_time, end_time,
-                    final_price, status, pending_until, created_at
+            r#"SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status as "status: _", pending_until, created_at
              FROM slots
              WHERE game_id = $1
                AND start_time < $2
-               AND end_time > $3",
+               AND end_time > $3"#,
             game_id,
             end_time,
             start_time,
@@ -89,7 +89,7 @@ impl SlotRepository {
 
     /// Inserts a new slot row inside a transaction.
     /// final_price = settings.base_price — frozen at creation time.
-    /// status is either "Available" (default) or "Booked" (offline booking).
+    /// status is either Available (default) or Booked (offline booking).
     pub async fn insert_tx(
         executor: &mut sqlx::PgConnection,
         game_id: i32,
@@ -98,21 +98,21 @@ impl SlotRepository {
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
         final_price: BigDecimal,
-        status: &str,
+        status: SlotStatus,
     ) -> Result<Slot, AppError> {
         sqlx::query_as!(
             Slot,
-            "INSERT INTO slots (game_id, settings_id, label, start_time, end_time, final_price, status)
+            r#"INSERT INTO slots (game_id, settings_id, label, start_time, end_time, final_price, status)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id, game_id, settings_id, label, start_time, end_time,
-                       final_price, status, pending_until, created_at",
+                       final_price, status as "status: _", pending_until, created_at"#,
             game_id,
             settings_id,
             label,
             start_time,
             end_time,
             final_price,
-            status,
+            status as SlotStatus,
         )
         .fetch_one(executor)
         .await
@@ -127,9 +127,9 @@ impl SlotRepository {
     ) -> Result<Option<Slot>, AppError> {
         sqlx::query_as!(
             Slot,
-            "SELECT id, game_id, settings_id, label, start_time, end_time,
-                    final_price, status, pending_until, created_at
-             FROM slots WHERE id = $1",
+            r#"SELECT id, game_id, settings_id, label, start_time, end_time,
+                    final_price, status as "status: _", pending_until, created_at
+             FROM slots WHERE id = $1"#,
             slot_id,
         )
         .fetch_optional(executor)
@@ -185,7 +185,7 @@ impl SlotRepository {
     }
 
     /// Deletes a single slot by ID inside a transaction.
-    /// The service layer MUST verify status == 'Available' before calling this.
+    /// The service layer MUST verify status == Available before calling this.
     pub async fn delete_tx(
         executor: &mut sqlx::PgConnection,
         slot_id: i32,
@@ -203,10 +203,10 @@ impl SlotRepository {
     ) -> Result<Slot, AppError> {
         sqlx::query_as!(
             Slot,
-            "UPDATE slots SET status = 'Available', pending_until = NULL
+            r#"UPDATE slots SET status = 'Available', pending_until = NULL
              WHERE id = $1
              RETURNING id, game_id, settings_id, label, start_time, end_time,
-                       final_price, status, pending_until, created_at",
+                       final_price, status as "status: _", pending_until, created_at"#,
             slot_id,
         )
         .fetch_one(executor)
@@ -223,12 +223,12 @@ impl SlotRepository {
     ) -> Result<Option<Slot>, AppError> {
         sqlx::query_as!(
             Slot,
-            "UPDATE slots
+            r#"UPDATE slots
              SET status = 'Pending',
                  pending_until = NOW() + INTERVAL '15 minutes'
              WHERE id = $1 AND status = 'Available'
              RETURNING id, game_id, settings_id, label, start_time, end_time,
-                       final_price, status, pending_until, created_at",
+                       final_price, status as "status: _", pending_until, created_at"#,
             slot_id,
         )
         .fetch_optional(executor)
@@ -244,10 +244,10 @@ impl SlotRepository {
     ) -> Result<Slot, AppError> {
         sqlx::query_as!(
             Slot,
-            "UPDATE slots SET status = 'Booked', pending_until = NULL
+            r#"UPDATE slots SET status = 'Booked', pending_until = NULL
              WHERE id = $1
              RETURNING id, game_id, settings_id, label, start_time, end_time,
-                       final_price, status, pending_until, created_at",
+                       final_price, status as "status: _", pending_until, created_at"#,
             slot_id,
         )
         .fetch_one(executor)

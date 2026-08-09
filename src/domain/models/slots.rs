@@ -7,6 +7,15 @@ use sqlx::FromRow;
 // DB Entity
 // ---------------------------------------------------------------------------
 
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, sqlx::Type)]
+#[sqlx(type_name = "text", rename_all = "PascalCase")]
+#[serde(rename_all = "PascalCase")]
+pub enum SlotStatus {
+    Available,
+    Pending,
+    Booked,
+}
+
 /// Mirrors the `slots` DB row.
 #[derive(Debug, Serialize, Deserialize, Clone, FromRow)]
 pub struct Slot {
@@ -17,7 +26,7 @@ pub struct Slot {
     pub start_time: DateTime<Utc>,
     pub end_time: DateTime<Utc>,
     pub final_price: BigDecimal,
-    pub status: String, // 'Available' | 'Pending' | 'Booked'
+    pub status: SlotStatus, // 'Available' | 'Pending' | 'Booked'
     pub pending_until: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
 }
@@ -34,7 +43,7 @@ pub struct CreateSlotRequest {
     pub settings_id: i32,
     pub slot_date: chrono::NaiveDate, // the business day to generate the slot for
     pub slot_interval_mins: Option<i32>, // gap before this slot (default: 10 mins)
-    pub initial_status: Option<String>, // None → "Available" (default). "Booked" for offline.
+    pub initial_status: Option<SlotStatus>, // None → "Available" (default). "Booked" for offline.
     pub contact_name: Option<String>, // required if initial_status == "Booked"
     pub contact_phone: Option<String>, // required if initial_status == "Booked"
 }
@@ -49,7 +58,7 @@ pub struct CreateCustomSlotRequest {
     pub slot_date: chrono::NaiveDate,    // the business day (same as normal slot flow)
     pub start_time: NaiveTime,           // local Dhaka time (HH:MM)
     pub end_time: NaiveTime,             // local Dhaka time (HH:MM)
-    pub initial_status: Option<String>,
+    pub initial_status: Option<SlotStatus>,
     pub contact_name: Option<String>,
     pub contact_phone: Option<String>,
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE slots\n             SET status = 'Pending',\n                 pending_until = NOW() + INTERVAL '15 minutes'\n             WHERE id = $1 AND status = 'Available'\n             RETURNING id, game_id, settings_id, label, start_time, end_time,\n                       final_price, status, pending_until, created_at",
+  "query": "SELECT id, game_id, settings_id, label, start_time, end_time,\n                    final_price, status as \"status: _\", pending_until, created_at\n             FROM slots WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -40,7 +40,7 @@
       },
       {
         "ordinal": 7,
-        "name": "status",
+        "name": "status: _",
         "type_info": "Text"
       },
       {
@@ -72,5 +72,5 @@
       false
     ]
   },
-  "hash": "53a09056f6f7652e332de904694f5405bd02b2679c83711c0fde990b49a7bebb"
+  "hash": "7ecac115e73a8dbf1808530c5450028c86a67e90ee2829c2dabdceeb284fbc59"
 }

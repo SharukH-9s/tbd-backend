@@ -1,6 +1,6 @@
 use crate::config::state::SharedState;
 use crate::domain::errors::{AppError, error_codes};
-use crate::domain::models::slots::Slot;
+use crate::domain::models::slots::{Slot, SlotStatus};
 use crate::domain::models::users::Role;
 use crate::repositories::booking_repo::BookingRepository;
 use crate::repositories::game_repo::GameRepository;
@@ -34,7 +34,7 @@ impl SlotService {
         settings_id: i32,
         slot_date: NaiveDate,
         slot_interval_mins: Option<i32>,
-        initial_status: Option<String>,
+        initial_status: Option<SlotStatus>,
         contact_name: Option<String>,
         contact_phone: Option<String>,
         caller_id: i32,
@@ -128,19 +128,19 @@ impl SlotService {
         }
 
         // ── 8. Resolve status & offline booking validation ───────────────────
-        let status = initial_status.as_deref().unwrap_or("Available");
+        let status = initial_status.unwrap_or(SlotStatus::Available);
 
         let mut final_contact_name = String::new();
         let mut final_contact_phone = String::new();
 
-        if status == "Booked" {
+        if status == SlotStatus::Booked {
             final_contact_name = contact_name.as_deref().unwrap_or("").trim().to_string();
             final_contact_phone = contact_phone.as_deref().unwrap_or("").trim().to_string();
 
             if final_contact_name.is_empty() || final_contact_phone.is_empty() {
                 return Err(AppError::bad_request(error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED, "both contact_name and contact_phone are required for offline bookings"));
             }
-        } else if status != "Available" {
+        } else if status != SlotStatus::Available {
             // Only "Available" and "Booked" are valid initial statuses
             return Err(AppError::bad_request(error_codes::SLOT_INVALID_STATUS, "initial_status must be 'Available' or 'Booked'"));
         }
@@ -163,7 +163,7 @@ impl SlotService {
         // that booking needs to be recorded in the database as an offline booking.
         // So in the booking table, only contact_name and contact_phone will be filled and user_id will be NULL.
         // This runs inside the same transaction so either both succeed or both rollback.
-        if status == "Booked" {
+        if status == SlotStatus::Booked {
             BookingRepository::insert_offline_tx(
                 &mut *tx,
                 slot.id,
@@ -261,7 +261,7 @@ impl SlotService {
         slot_date: NaiveDate,
         start_time_local: chrono::NaiveTime,
         end_time_local: chrono::NaiveTime,
-        initial_status: Option<String>,
+        initial_status: Option<SlotStatus>,
         contact_name: Option<String>,
         contact_phone: Option<String>,
         caller_id: i32,
@@ -370,19 +370,19 @@ impl SlotService {
         }
 
         // ── 6. Resolve status & offline booking validation ───────────────────
-        let status = initial_status.as_deref().unwrap_or("Available");
+        let status = initial_status.unwrap_or(SlotStatus::Available);
 
         let mut final_contact_name = String::new();
         let mut final_contact_phone = String::new();
 
-        if status == "Booked" {
+        if status == SlotStatus::Booked {
             final_contact_name = contact_name.as_deref().unwrap_or("").trim().to_string();
             final_contact_phone = contact_phone.as_deref().unwrap_or("").trim().to_string();
 
             if final_contact_name.is_empty() || final_contact_phone.is_empty() {
                 return Err(AppError::bad_request(error_codes::BOTH_CONTACT_NAME_AND_PHONE_REQUIRED, "both contact_name and contact_phone are required for offline bookings"));
             }
-        } else if status != "Available" {
+        } else if status != SlotStatus::Available {
             return Err(AppError::bad_request(error_codes::SLOT_INVALID_STATUS, "initial_status must be 'Available' or 'Booked'"));
         }
 
@@ -400,7 +400,7 @@ impl SlotService {
         .await?;
 
         // ── 7b. If offline booking — insert the booking record atomically ─────
-        if status == "Booked" {
+        if status == SlotStatus::Booked {
             BookingRepository::insert_offline_tx(
                 &mut *tx,
                 slot.id,
@@ -453,7 +453,7 @@ impl SlotService {
         }
 
         // 4. Status guard — Pending and Booked are financial records, never delete them
-        if slot.status != "Available" {
+        if slot.status != SlotStatus::Available {
             return Err(AppError::conflict(error_codes::SLOT_NOT_DELETABLE, "Only Available slots can be deleted. Pending and Booked slots are protected."));
         }
 

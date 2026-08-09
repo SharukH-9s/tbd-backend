@@ -1,32 +1,54 @@
 use axum::{
-    Json,
     extract::{ConnectInfo, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
+    Json,
 };
-use jsonwebtoken::{DecodingKey, Validation, decode};
+use jsonwebtoken::{decode, DecodingKey, Validation};
 use std::net::SocketAddr;
 
 use crate::api::extractors::types::Claims;
 use crate::config::state::SharedState;
-use crate::domain::errors::{ErrorBody, ErrorResponse, error_codes};
+use crate::domain::errors::{error_codes, ErrorBody, ErrorResponse};
 
-// Lua script for an atomic Fixed Window rate limiter.
-// Returns the current count after increment.
-// KEYS[1]  = the rate limit key (e.g. "rl:auth:1.2.3.4")
+// Lua script for an atomic Token Bucket rate limiter.
+// Returns the remaining token count (float), or -1.0 if denied.
+// KEYS[1]  = the rate limit key
 // ARGV[1]  = the window duration in seconds
-// ARGV[2]  = the max allowed requests per window
-//
-// Atomicity guarantee: INCR + EXPIRE happen as a single unit inside Redis.
-// This prevents the race condition where INCR succeeds but EXPIRE never runs,
-// which would cause that key (and its memory) to live forever in Redis.
+// ARGV[2]  = the max allowed tokens (bucket capacity)
+// ARGV[3]  = current timestamp in milliseconds
 const RATE_LIMIT_LUA: &str = r#"
-local current = redis.call('INCR', KEYS[1])
-if current == 1 then
-    redis.call('EXPIRE', KEYS[1], ARGV[1])
+local key = KEYS[1]
+local window_secs = tonumber(ARGV[1])
+local max_tokens = tonumber(ARGV[2])
+local now_ms = tonumber(ARGV[3])
+
+local refill_rate_per_sec = max_tokens / window_secs
+
+local bucket = redis.call('HMGET', key, 'tokens', 'last_refill_ts')
+local tokens = tonumber(bucket[1])
+local last_refill_ts = tonumber(bucket[2])
+
+if tokens == nil then
+    tokens = max_tokens
+    last_refill_ts = now_ms
+else
+    local elapsed_ms = math.max(0, now_ms - last_refill_ts)
+    local refill = (elapsed_ms / 1000) * refill_rate_per_sec
+    tokens = math.min(max_tokens, tokens + refill)
+    last_refill_ts = now_ms
 end
-return current
+
+if tokens < 1 then
+    return -1.0
+end
+
+tokens = tokens - 1
+redis.call('HMSET', key, 'tokens', tostring(tokens), 'last_refill_ts', tostring(last_refill_ts))
+redis.call('EXPIRE', key, math.ceil(window_secs))
+
+return tokens
 "#;
 
 /// Extracts the true client IP, respecting Render's load balancer headers.
@@ -83,20 +105,27 @@ fn try_extract_user_id(req: &Request, secret: &[u8]) -> Option<i32> {
 }
 
 /// Runs the atomic Lua rate-limit script against Redis.
-/// Returns `Ok(current_count)` on success, or `Err` if Redis is unavailable.
+/// Returns `Ok(remaining_tokens)` on success, or `Err` if Redis is unavailable.
+/// A negative return value indicates the request is rate-limited.
 async fn check_rate_limit(
     conn: &mut redis::aio::MultiplexedConnection,
     key: &str,
     window_secs: u64,
     max_requests: u64,
-) -> Result<u64, redis::RedisError> {
-    let count: u64 = redis::Script::new(RATE_LIMIT_LUA)
+) -> Result<f64, redis::RedisError> {
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+
+    let remaining: f64 = redis::Script::new(RATE_LIMIT_LUA)
         .key(key)
         .arg(window_secs)
         .arg(max_requests)
+        .arg(now_ms)
         .invoke_async(conn)
         .await?;
-    Ok(count)
+    Ok(remaining)
 }
 
 /// **Auth Rate Limiter** — Strict tier for authentication routes.
@@ -120,11 +149,10 @@ pub async fn auth_rate_limiter(
     let mut conn = state.redis_conn.clone();
 
     match check_rate_limit(&mut conn, &key, WINDOW_SECS, MAX_REQUESTS).await {
-        Ok(count) if count > MAX_REQUESTS => {
+        Ok(count) if count < 0.0 => {
             // used match guard
             tracing::warn!(
                 ip = %ip,
-                count = count,
                 max = MAX_REQUESTS,
                 "Auth rate limit exceeded"
             );
@@ -146,7 +174,7 @@ pub async fn auth_rate_limiter(
                 .into_response()
         }
         Ok(count) => {
-            let remaining = MAX_REQUESTS.saturating_sub(count);
+            let remaining = count.floor() as u64;
             let mut response = next.run(req).await; // pass the HTTP request downstream. If there are no other middlewares in the way, it goes straight to the target handler
             response.headers_mut().insert(
                 "X-RateLimit-Limit",
@@ -187,7 +215,7 @@ pub async fn api_rate_limiter(
     req: Request,
     next: Next,
 ) -> Response {
-    const WINDOW_SECS: u64 = 10;
+    const WINDOW_SECS: u64 = 60;
     const MAX_REQUESTS: u64 = 100;
 
     // Attempt to identify the requester by their JWT user_id first.
@@ -208,10 +236,9 @@ pub async fn api_rate_limiter(
     let mut conn = state.redis_conn.clone();
 
     match check_rate_limit(&mut conn, &key, WINDOW_SECS, MAX_REQUESTS).await {
-        Ok(count) if count > MAX_REQUESTS => {
+        Ok(count) if count < 0.0 => {
             tracing::warn!(
                 key = %key,
-                count = count,
                 max = MAX_REQUESTS,
                 "API rate limit exceeded"
             );
@@ -233,7 +260,7 @@ pub async fn api_rate_limiter(
                 .into_response()
         }
         Ok(count) => {
-            let remaining = MAX_REQUESTS.saturating_sub(count);
+            let remaining = count.floor() as u64;
             let mut response = next.run(req).await;
             response.headers_mut().insert(
                 "X-RateLimit-Limit",

@@ -2,6 +2,7 @@ use crate::api::extractors::types::Claims;
 use crate::config::state::SharedState;
 use crate::domain::dtos::responses::SuccessResponse;
 use crate::domain::errors::AppError;
+use crate::domain::models::bookings::PaymentStatus;
 use crate::services::booking_service::BookingService;
 use axum::Json;
 use axum::extract::State;
@@ -13,7 +14,6 @@ use serde::Serialize;
 pub struct BookingDetail {
     pub id: i32,
     pub slot_id: i32,
-    pub booking_number: i32,
     pub user_name: Option<String>,
     pub user_phone: Option<String>,
     pub turf_name: String,
@@ -21,7 +21,7 @@ pub struct BookingDetail {
     pub total_price: BigDecimal,
     pub advance_paid: BigDecimal,
     pub due_amount: BigDecimal,
-    pub payment_status: String,
+    pub payment_status: PaymentStatus,
     pub booking_time: chrono::DateTime<chrono::Utc>,
     pub start_time: chrono::DateTime<chrono::Utc>,
     pub end_time: chrono::DateTime<chrono::Utc>,

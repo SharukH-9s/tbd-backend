@@ -1,6 +1,6 @@
 use crate::config::state::SharedState;
 use crate::domain::errors::{error_codes, AppError};
-use crate::domain::models::bookings::Booking;
+use crate::domain::models::bookings::{Booking, PaymentStatus};
 use crate::repositories::booking_repo::BookingRepository;
 use crate::repositories::slot_repo::SlotRepository;
 use crate::repositories::user_repo::UserRepository;
@@ -159,7 +159,7 @@ impl BookingService {
         }
 
         // ── 3. Guard: cannot mark an already settled booking ─────────────────
-        if booking.payment_status == "Fully_Paid" {
+        if booking.payment_status == PaymentStatus::FullyPaid {
             return Err(AppError::bad_request(
                 error_codes::ALREADY_SETTLED,
                 "This booking is already Fully Paid",
@@ -260,7 +260,7 @@ impl BookingService {
         }
 
         // ── 3. Guard: do not cancel an already settled booking ───────────────
-        if booking.payment_status == "Fully_Paid" {
+        if booking.payment_status == PaymentStatus::FullyPaid {
             return Err(AppError::conflict(
                 error_codes::ALREADY_SETTLED,
                 "A Fully_Paid booking cannot be cancelled. Contact admin if needed.",
@@ -291,7 +291,7 @@ impl BookingService {
         state: &SharedState,
         slot_id: i32,
         user_id: i32,
-        payment_status: &str,
+        payment_status: PaymentStatus,
     ) -> Result<Booking, AppError> {
         let mut tx = state.db.begin().await.map_err(|_| {
             AppError::internal(
@@ -400,7 +400,7 @@ impl BookingService {
         slot_id: i32,
         user_id: i32,
     ) -> Result<Booking, AppError> {
-        Self::process_gateway_payment(state, slot_id, user_id, "Partially_Paid").await
+        Self::process_gateway_payment(state, slot_id, user_id, PaymentStatus::PartiallyPaid).await
     }
 
     /// Mock Payment Webhook — Full 100%
@@ -411,7 +411,7 @@ impl BookingService {
         slot_id: i32,
         user_id: i32,
     ) -> Result<Booking, AppError> {
-        Self::process_gateway_payment(state, slot_id, user_id, "Fully_Paid").await
+        Self::process_gateway_payment(state, slot_id, user_id, PaymentStatus::FullyPaid).await
     }
 
     /// Fetch all bookings for a user (regular user sees only their bookings).

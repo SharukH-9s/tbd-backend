@@ -1,5 +1,5 @@
 use crate::domain::errors::{error_codes, AppError};
-use crate::domain::models::bookings::Booking;
+use crate::domain::models::bookings::{Booking, PaymentStatus};
 use crate::{db_conn_err, db_err};
 use axum::http::StatusCode;
 use bigdecimal::BigDecimal;
@@ -46,7 +46,7 @@ impl BookingRepository {
             Booking,
             "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
              VALUES ($1, $2, $3, $4, 'Unpaid')
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
             slot_id,
             user_id,
             contact_name,
@@ -69,7 +69,7 @@ impl BookingRepository {
             Booking,
             "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
              VALUES ($1, NULL, $2, $3, 'Fully_Paid')
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
             slot_id,
             contact_name,
             contact_phone,
@@ -86,7 +86,7 @@ impl BookingRepository {
     ) -> Result<Option<Booking>, AppError> {
         sqlx::query_as!(
             Booking,
-            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time
+            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time
              FROM bookings WHERE id = $1",
             booking_id,
         )
@@ -107,14 +107,14 @@ impl BookingRepository {
     /// Updates payment_status for a booking by its own ID.
     async fn update_by_booking_id_tx(
         executor: &mut sqlx::PgConnection,
-        status: &str,
+        status: PaymentStatus,
         booking_id: i32,
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
             "UPDATE bookings SET payment_status = $1 WHERE id = $2
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
-            status,
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+            status as PaymentStatus,
             booking_id,
         )
         .fetch_one(executor)
@@ -125,15 +125,15 @@ impl BookingRepository {
     /// Updates payment_status for a booking identified by (slot_id, user_id).
     async fn update_by_slot_and_user_tx(
         executor: &mut sqlx::PgConnection,
-        status: &str,
+        status: PaymentStatus,
         slot_id: i32,
         user_id: i32,
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
             "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time",
-            status,
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+            status as PaymentStatus,
             slot_id,
             user_id,
         )
@@ -146,7 +146,7 @@ impl BookingRepository {
     /// Can filter by booking_id OR (slot_id AND user_id).
     pub async fn update_payment_status_tx(
         executor: &mut sqlx::PgConnection,
-        status: &str,
+        status: PaymentStatus,
         booking_id: Option<i32>,
         slot_id: Option<i32>,
         user_id: Option<i32>,
@@ -168,7 +168,7 @@ impl BookingRepository {
         executor: &mut sqlx::PgConnection,
         booking_id: i32,
     ) -> Result<Booking, AppError> {
-        Self::update_payment_status_tx(executor, "Fully_Paid", Some(booking_id), None, None).await
+        Self::update_payment_status_tx(executor, PaymentStatus::FullyPaid, Some(booking_id), None, None).await
     }
 
     // ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ impl BookingRepository {
             // username and phone are NOT NULL in the users table, but come via LEFT JOIN
             // (offline bookings have no user row). The "col?" suffix forces sqlx to
             // infer Option<String> regardless of the underlying column constraint.
-            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time,
+            "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
                     b.contact_name, b.contact_phone,
                     t.name as turf_name, g.name as game_name,
                     s.final_price, s.start_time, s.end_time,
@@ -216,17 +216,16 @@ impl BookingRepository {
             .into_iter()
             .map(|row| {
                 let total_price: BigDecimal = row.final_price;
-                let payment_status: String = row.payment_status;
+                let payment_status: PaymentStatus = row.payment_status;
 
-                let (advance_paid, due_amount) = match payment_status.as_str() {
-                    "Unpaid" => (BigDecimal::from(0), total_price.clone()),
-                    "Partially_Paid" => {
+                let (advance_paid, due_amount) = match payment_status {
+                    PaymentStatus::Unpaid => (BigDecimal::from(0), total_price.clone()),
+                    PaymentStatus::PartiallyPaid => {
                         let advance = &total_price * BigDecimal::from(30) / BigDecimal::from(100);
                         let due = &total_price * BigDecimal::from(70) / BigDecimal::from(100);
                         (advance, due)
                     }
-                    "Fully_Paid" => (total_price.clone(), BigDecimal::from(0)),
-                    _ => (BigDecimal::from(0), total_price.clone()),
+                    PaymentStatus::FullyPaid => (total_price.clone(), BigDecimal::from(0)),
                 };
 
                 // Prefer the joined user profile; fall back to the contact fields stored at
@@ -237,7 +236,6 @@ impl BookingRepository {
                 BookingDetail {
                     id: row.id,
                     slot_id: row.slot_id,
-                    booking_number: row.id,
                     user_name,
                     user_phone,
                     turf_name: row.turf_name,
@@ -268,7 +266,7 @@ impl BookingRepository {
         let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
 
         let rows = sqlx::query!(
-            "SELECT b.id, b.slot_id, b.payment_status, b.booking_time,
+            "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
                     b.contact_name, b.contact_phone,
                     t.name as turf_name, g.name as game_name,
                     s.final_price, s.start_time, s.end_time,
@@ -290,17 +288,16 @@ impl BookingRepository {
             .into_iter()
             .map(|row| {
                 let total_price: BigDecimal = row.final_price;
-                let payment_status: String = row.payment_status;
+                let payment_status: PaymentStatus = row.payment_status;
 
-                let (advance_paid, due_amount) = match payment_status.as_str() {
-                    "Unpaid" => (BigDecimal::from(0), total_price.clone()),
-                    "Partially_Paid" => {
+                let (advance_paid, due_amount) = match payment_status {
+                    PaymentStatus::Unpaid => (BigDecimal::from(0), total_price.clone()),
+                    PaymentStatus::PartiallyPaid => {
                         let advance = &total_price * BigDecimal::from(30) / BigDecimal::from(100);
                         let due = &total_price * BigDecimal::from(70) / BigDecimal::from(100);
                         (advance, due)
                     }
-                    "Fully_Paid" => (total_price.clone(), BigDecimal::from(0)),
-                    _ => (BigDecimal::from(0), total_price.clone()),
+                    PaymentStatus::FullyPaid => (total_price.clone(), BigDecimal::from(0)),
                 };
 
                 let user_name = row.username.or(row.contact_name);
@@ -309,7 +306,6 @@ impl BookingRepository {
                 BookingDetail {
                     id: row.id,
                     slot_id: row.slot_id,
-                    booking_number: row.id,
                     user_name,
                     user_phone,
                     turf_name: row.turf_name,

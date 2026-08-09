@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status, booking_time\n             FROM bookings WHERE id = $1",
+  "query": "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)\n             VALUES ($1, $2, $3, $4, 'Unpaid')\n             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
   "describe": {
     "columns": [
       {
@@ -30,7 +30,7 @@
       },
       {
         "ordinal": 5,
-        "name": "payment_status",
+        "name": "payment_status: _",
         "type_info": "Text"
       },
       {
@@ -41,7 +41,10 @@
     ],
     "parameters": {
       "Left": [
-        "Int4"
+        "Int4",
+        "Int4",
+        "Text",
+        "Text"
       ]
     },
     "nullable": [
@@ -54,5 +57,5 @@
       false
     ]
   },
-  "hash": "e787200d91f527df2222282c4dd9c35799b5be5b204abe7e8dcd7a9d4c6c55ff"
+  "hash": "92c087ede571c733f4df2640a6bee27aee3bb8d910eb73019c3b8665a6f96f53"
 }
