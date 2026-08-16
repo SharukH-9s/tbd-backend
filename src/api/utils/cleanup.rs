@@ -8,16 +8,25 @@ async fn execute_cleanup(state: &SharedState) {
     // Try to acquire a 10-second lock in Redis
     // "NX" means: Only set the key if it does not already exist
     // "EX 10" means: Automatically delete this key after 10 seconds (fail-safe expiration)
-    let mut redis_conn = state.redis_conn.clone(); // Clones the Redis connection client from the shared state so this loop iteration has its own connection instance to talk to Redis
-    let acquire_lock: Result<Option<String>, redis::RedisError> =
-        redis::cmd("SET") // sends a SET command to Redis
-            .arg("lock:cleanup_worker") // with the key "lock:cleanup_worker"
-            .arg("locked") // and value "locked"
-            .arg("NX") // NX - Only set if the key does not already exist
-            .arg("EX") // EX - Set an expiration time
-            .arg(10) // 10 seconds
-            .query_async(&mut redis_conn)
-            .await;
+    let acquire_lock: Result<Option<String>, redis::RedisError> = match state.redis_pool.get().await {
+        Ok(mut redis_conn) => {
+            redis::cmd("SET") // sends a SET command to Redis
+                .arg("lock:cleanup_worker") // with the key "lock:cleanup_worker"
+                .arg("locked") // and value "locked"
+                .arg("NX") // NX - Only set if the key does not already exist
+                .arg("EX") // EX - Set an expiration time
+                .arg(10) // 10 seconds
+                .query_async(&mut redis_conn)
+                .await
+        }
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                "[cleanup] Failed to acquire Redis connection from pool for lock check"
+            );
+            return;
+        }
+    };
 
     match acquire_lock {
         Ok(Some(_)) => {

@@ -91,13 +91,25 @@ where
         // If the key exists, the token has been revoked (user logged out).
         // Fail-Open: if Redis is down, we allow the request through to avoid an outage.
         let blacklist_key = format!("blacklist:jti:{}", claims.jti);
-        let mut redis_conn = state.redis_conn.clone();
-        let is_blacklisted: Result<bool, _> = redis::cmd("EXISTS")
-            .arg(&blacklist_key)
-            .query_async(&mut redis_conn)
-            .await; // returns bool if the key exists in Redis, 1 if true, 0 if false or error.
+        let blacklist_res = match state.redis_pool.get().await {
+            Ok(mut conn) => {
+                let res: Result<bool, _> = redis::cmd("EXISTS")
+                    .arg(&blacklist_key)
+                    .query_async(&mut conn)
+                    .await;
+                res
+            }
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    jti = %claims.jti,
+                    "Failed to get Redis connection from pool during blacklist check — failing open"
+                );
+                Ok(false)
+            }
+        };
 
-        match is_blacklisted {
+        match blacklist_res {
             Ok(true) => {
                 return Err(AppError {
                     code: error_codes::REVOKED_TOKEN,

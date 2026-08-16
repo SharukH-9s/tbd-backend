@@ -85,8 +85,11 @@ async fn main() {
     );
 
     // STEP 3: Configure the exporter and provider
-    let resource = Resource::builder() // A Resource represents the entity generating the data. Every trace line emitted by this backend will be permanently stamped with identity tags (service.name = "turf_bd_backend" and deployment.environment = "production")
-        .with_service_name("turf_bd_backend")
+    let service_name = env::var("OTEL_SERVICE_NAME")
+        .unwrap_or_else(|_| "turf_bd_backend".to_string());
+
+    let resource = Resource::builder() // A Resource represents the entity generating the data. Every trace line emitted by this backend will be permanently stamped with identity tags (service.name and deployment.environment)
+        .with_service_name(service_name.clone())
         .with_attribute(KeyValue::new("deployment.environment", app_env.clone()))
         .build();
     let exporter = SpanExporter::builder() // The exporter packages completed spans and pushes them via HTTP/Protobuf to an OTel Collector (defaulting to http://localhost:4318/v1/traces)
@@ -104,7 +107,7 @@ async fn main() {
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
     // Create a tracer instance from the provider, naming it after our service.
-    let otel_tracer = tracer_provider.tracer("turf_bd_backend");
+    let otel_tracer = tracer_provider.tracer(service_name);
 
     // STEP 4: Attach the tracing-opentelemetry layer to the subscriber registry
     let otel_layer = tracing_opentelemetry::layer().with_tracer(otel_tracer);
@@ -132,20 +135,26 @@ async fn main() {
 
     tracing::info!("Connected to PostgreSQL database");
 
-    // Connect to Render Key Value (Redis) and get a multiplexed async connection.
-    // A multiplexed connection can be cloned cheaply across handlers — no Mutex needed.
-    let redis_client = redis::Client::open(redis_url)
-        .expect("Invalid REDIS_URL — check the format in your .env file");
-    let redis_conn = redis_client
-        .get_multiplexed_async_connection()
+    // Run pending database migrations on startup
+    tracing::info!("Running database migrations...");
+    sqlx::migrate!()
+        .run(&db)
         .await
-        .expect("Failed to connect to Redis. Ensure REDIS_URL is reachable.");
-    tracing::info!("Connected to Redis");
+        .expect("Database migration failed on startup");
+    tracing::info!("Database migrations complete");
+
+    // Connect to Redis using a deadpool-redis connection pool.
+    // Connection pooling eliminates the bottleneck of a single shared TCP connection under high concurrency.
+    let redis_cfg = deadpool_redis::Config::from_url(redis_url);
+    let redis_pool = redis_cfg
+        .create_pool(Some(deadpool_redis::Runtime::Tokio1))
+        .expect("Failed to create Redis connection pool. Ensure REDIS_URL is reachable.");
+    tracing::info!("Initialized Redis connection pool");
 
     let shared_state: SharedState = Arc::new(AppState {
         db,
         jwt_secret: Arc::new(secret.into_bytes()),
-        redis_conn,
+        redis_pool,
     });
 
     // Ensure the root Administrator exists on startup
@@ -177,10 +186,19 @@ async fn main() {
     // Requires WORKER_URL in env (e.g. https://tbd-worker.onrender.com).
     tokio::spawn(api::utils::tester::keep_alive_worker());
 
+    let cors_origins_raw = env::var("CORS_ORIGIN")
+        .unwrap_or_else(|_| "http://localhost:5173,https://unique-kelpie-7632c3.netlify.app".to_string());
+    let cors_origins: Vec<HeaderValue> = cors_origins_raw
+        .split(',')
+        .map(|s| {
+            s.trim()
+                .parse::<HeaderValue>()
+                .expect("CORS_ORIGIN contains an invalid HTTP header value")
+        })
+        .collect();
+
     let cors = CorsLayer::new()
-        .allow_origin(["https://unique-kelpie-7632c3.netlify.app"
-            .parse::<HeaderValue>()
-            .unwrap()])
+        .allow_origin(cors_origins)
         .allow_methods([
             Method::GET,
             Method::POST,

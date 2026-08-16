@@ -35,26 +35,32 @@ pub async fn logout_handler(
                     if remaining_ttl > 0 {
                         // if the remaining ttl is less than 0, the token is already expired, so we don't need to blacklist it.
                         let blacklist_key = format!("blacklist:jti:{}", claims.jti);
-                        let mut redis_conn = database.redis_conn.clone();
 
-                        // SET blacklist:jti:<jti> "1" EX <ttl>
-                        // The key auto-expires when the token would have expired naturally.
-                        let result: Result<(), redis::RedisError> = redis::cmd("SET")
-                            .arg(&blacklist_key) // key name
-                            .arg("1") // value
-                            .arg("EX") // expire
-                            .arg(remaining_ttl) // ttl
-                            .query_async(&mut redis_conn)
-                            .await;
+                        match database.redis_pool.get().await {
+                            Ok(mut redis_conn) => {
+                                // SET blacklist:jti:<jti> "1" EX <ttl>
+                                // The key auto-expires when the token would have expired naturally.
+                                let result: Result<(), redis::RedisError> = redis::cmd("SET")
+                                    .arg(&blacklist_key) // key name
+                                    .arg("1") // value
+                                    .arg("EX") // expire
+                                    .arg(remaining_ttl) // ttl
+                                    .query_async(&mut redis_conn)
+                                    .await;
 
-                        match result {
-                            Ok(_) => {
-                                tracing::info!(jti = %claims.jti, ttl = remaining_ttl, "Access token blacklisted in Redis");
+                                match result {
+                                    Ok(_) => {
+                                        tracing::info!(jti = %claims.jti, ttl = remaining_ttl, "Access token blacklisted in Redis");
+                                    }
+                                    Err(e) => {
+                                        // Fail-Open: log the error but continue with logout.
+                                        // The refresh token is still revoked, so the session is effectively ended.
+                                        tracing::error!(error = %e, jti = %claims.jti, "Failed to blacklist access token in Redis — continuing logout");
+                                    }
+                                }
                             }
                             Err(e) => {
-                                // Fail-Open: log the error but continue with logout.
-                                // The refresh token is still revoked, so the session is effectively ended.
-                                tracing::error!(error = %e, jti = %claims.jti, "Failed to blacklist access token in Redis — continuing logout");
+                                tracing::error!(error = %e, jti = %claims.jti, "Failed to get Redis connection from pool for blacklisting — continuing logout");
                             }
                         }
                     }

@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, sqlx::Type)] // These are SQLx macros used to handle how the enum is stored in the database.
-#[sqlx(type_name = "text", rename_all = "PascalCase")]
-#[serde(rename_all = "PascalCase")]
+#[sqlx(type_name = "text", rename_all = "PascalCase")] // variants will be saved as raw text/string in DB and will be converted to enum in Rust
+#[serde(rename_all = "PascalCase")] // variants will be converted to raw text/string when converted to JSON
 pub enum PaymentStatus {
     Unpaid,
     #[sqlx(rename = "Partially_Paid")]

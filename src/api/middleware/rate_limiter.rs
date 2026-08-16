@@ -108,7 +108,7 @@ fn try_extract_user_id(req: &Request, secret: &[u8]) -> Option<i32> {
 /// Returns `Ok(remaining_tokens)` on success, or `Err` if Redis is unavailable.
 /// A negative return value indicates the request is rate-limited.
 async fn check_rate_limit(
-    conn: &mut redis::aio::MultiplexedConnection,
+    conn: &mut deadpool_redis::Connection,
     key: &str,
     window_secs: u64,
     max_requests: u64,
@@ -146,7 +146,17 @@ pub async fn auth_rate_limiter(
     let ip = extract_ip(&req, &socket_addr);
     let key = format!("rl:auth:ip:{}", ip); // rl:auth:ip: is the prefix for the rate limit key in Redis,ip is the user's IP address
 
-    let mut conn = state.redis_conn.clone();
+    let mut conn = match state.redis_pool.get().await {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                ip = %ip,
+                "Failed to acquire Redis connection from pool for auth rate limiter — failing open"
+            );
+            return next.run(req).await;
+        }
+    };
 
     match check_rate_limit(&mut conn, &key, WINDOW_SECS, MAX_REQUESTS).await {
         Ok(count) if count < 0.0 => {
@@ -233,7 +243,17 @@ pub async fn api_rate_limiter(
         }
     };
 
-    let mut conn = state.redis_conn.clone();
+    let mut conn = match state.redis_pool.get().await {
+        Ok(c) => c,
+        Err(err) => {
+            tracing::error!(
+                error = %err,
+                key = %key,
+                "Failed to acquire Redis connection from pool for API rate limiter — failing open"
+            );
+            return next.run(req).await;
+        }
+    };
 
     match check_rate_limit(&mut conn, &key, WINDOW_SECS, MAX_REQUESTS).await {
         Ok(count) if count < 0.0 => {
