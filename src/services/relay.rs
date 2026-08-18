@@ -12,7 +12,7 @@ use std::time::Duration;
 use tokio::time::interval;
 use uuid::Uuid;
 
-const POLL_INTERVAL_SECS: u64 = 2;
+const DEFAULT_POLL_INTERVAL_SECS: u64 = 5;
 const EXCHANGE_NAME: &str = "tbd.events";
 const MAX_RETRIES: i32 = 5;
 
@@ -20,10 +20,17 @@ const MAX_RETRIES: i32 = 5;
 
 /// Start the relay loop. Called via `tokio::spawn(run_relay(db, amqp_url))` in main.rs.
 pub async fn run_relay(db: PgPool, amqp_url: String) {
-    tracing::info!("Relay task started — connecting to CloudAMQP...");
+    // Read poll interval once at startup so every reconnect reuses the same value.
+    // Override via RELAY_POLL_INTERVAL_SECS in .env (default: 5 s).
+    let poll_secs: u64 = std::env::var("RELAY_POLL_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_POLL_INTERVAL_SECS);
+
+    tracing::info!(poll_interval_secs = poll_secs, "Relay task started — connecting to CloudAMQP...");
 
     loop {
-        match connect_and_run(&db, &amqp_url).await {
+        match connect_and_run(&db, &amqp_url, poll_secs).await {
             // connect to AMQP and run the poll loop
             Ok(_) => tracing::warn!("Relay: AMQP connection closed — reconnecting in 5s..."),
             Err(e) => {
@@ -36,18 +43,15 @@ pub async fn run_relay(db: PgPool, amqp_url: String) {
 
 // ── Connection & Topology Setup ───────────────────────────────────────────────
 
-async fn connect_and_run(db: &PgPool, amqp_url: &str) -> Result<(), lapin::Error> {
+async fn connect_and_run(db: &PgPool, amqp_url: &str, poll_secs: u64) -> Result<(), lapin::Error> {
     let conn = Connection::connect(amqp_url, ConnectionProperties::default()).await?;
     tracing::info!("Relay: connected to CloudAMQP");
 
     let channel = conn.create_channel().await?; // create a channel on the connection.
     setup_topology(&channel).await?;
 
-    tracing::info!(
-        "Relay: topology ready — polling outbox every {}s",
-        POLL_INTERVAL_SECS
-    );
-    poll_loop(db, &channel).await;
+    tracing::info!(poll_interval_secs = poll_secs, "Relay: topology ready — polling outbox");
+    poll_loop(db, &channel, poll_secs).await;
     Ok(())
 }
 
@@ -128,8 +132,8 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
 
 // ── Poll Loop ─────────────────────────────────────────────────────────────────
 
-async fn poll_loop(db: &PgPool, ch: &Channel) {
-    let mut ticker = interval(Duration::from_secs(POLL_INTERVAL_SECS));
+async fn poll_loop(db: &PgPool, ch: &Channel, poll_secs: u64) {
+    let mut ticker = interval(Duration::from_secs(poll_secs));
     loop {
         ticker.tick().await;
 

@@ -31,7 +31,7 @@ async fn execute_cleanup(state: &SharedState) {
     match acquire_lock {
         Ok(Some(_)) => {
             // Successfully got the lock! This instance is chosen to do the work.
-            tracing::info!("[cleanup] Lock acquired. Executing database cleanups...");
+            tracing::debug!("[cleanup] Lock acquired. Executing database cleanups...");
 
             // Step 1: Reset expired Pending slots → Available
             match SlotRepository::reset_expired_pending_slots(&state.db).await {
@@ -71,13 +71,16 @@ async fn execute_cleanup(state: &SharedState) {
     }
 }
 
-/// Background cleanup task that runs every 60 seconds.
-/// Distributed-safe using Redis lock to prevent concurrent database updates.
 pub async fn run_cleanup_worker(state: SharedState) {
-    let mut ticker = interval(Duration::from_secs(60)); // Creates an asynchronous timer (a "ticker") that fires an event every 60 seconds.
+    let interval_secs: u64 = std::env::var("CLEANUP_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(60);
+
+    let mut ticker = interval(Duration::from_secs(interval_secs));
 
     loop {
-        ticker.tick().await; // pauses execution right here. It will sleep for 60 seconds, wake up to run the code below, complete it, and then pause here again for another 60 seconds
+        ticker.tick().await;
         execute_cleanup(&state).await;
     }
 }

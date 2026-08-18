@@ -55,15 +55,24 @@ pub async fn track_http_metrics(request: Request<axum::body::Body>, next: Next) 
     response
 }
 
-/// Background worker that polls the SQLx connection pool every 5 seconds
-/// and publishes active/idle gauge metrics to the global Prometheus recorder.
+/// Background worker that polls the SQLx connection pool and publishes
+/// active/idle gauge metrics to the global Prometheus recorder.
+///
+/// Interval is controlled by `DB_METRICS_INTERVAL_SECS` (default: 15 s).
+/// 15 s aligns with typical Prometheus scrape intervals and avoids redundant
+/// writes between scrapes.
 ///
 /// Spawn once after the pool is created:
 /// ```rust
 /// tokio::spawn(track_database_metrics(db.clone()));
 /// ```
 pub async fn track_database_metrics(pool: PgPool) {
-    let mut ticker = interval(Duration::from_secs(5));
+    let interval_secs: u64 = std::env::var("DB_METRICS_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(15);
+
+    let mut ticker = interval(Duration::from_secs(interval_secs));
 
     loop {
         ticker.tick().await;

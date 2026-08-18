@@ -126,9 +126,19 @@ async fn main() {
     // PgPoolOptions lets us configure the pool before connecting.
     // max_connections(5) means at most 5 simultaneous DB connections will be open.
     // If all 5 are busy, the 6th request waits until one is free.
+    let max_connections: u32 = env::var("DATABASE_MAX_CONNECTIONS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20); // Neon Free tier limit ~20 connections
+
+    let acquire_timeout_secs: u64 = env::var("DATABASE_ACQUIRE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3); // Fail fast if pool is saturated
+
     let db = PgPoolOptions::new()
-        .max_connections(20) // Neon Free tier limit ~20 connections
-        .acquire_timeout(std::time::Duration::from_secs(3)) // Fail fast if pool is saturated
+        .max_connections(max_connections)
+        .acquire_timeout(std::time::Duration::from_secs(acquire_timeout_secs))
         .connect(&database_url)
         .await
         .expect("Failed to connect to the database. Check DATABASE_URL in .env");
@@ -428,7 +438,27 @@ async fn main() {
             api::middleware::metrics::track_http_metrics,
         ))
         .layer(cors)
-        .layer(TraceLayer::new_for_http()) // Auto-creates spans for all HTTP requests
+        .layer(
+            // Auto-creates spans for all HTTP requests, but suppresses span
+            // creation entirely for internal probes (/health, /ping, /metrics)
+            // so they never appear in OTel traces or consume collector quota.
+            TraceLayer::new_for_http().make_span_with(
+                |request: &axum::http::Request<axum::body::Body>| {
+                    let path = request.uri().path();
+                    if matches!(path, "/health" | "/ping" | "/metrics") {
+                        // tracing::Span::none() is a zero-cost disabled span —
+                        // nothing is recorded or exported for these routes.
+                        tracing::Span::none()
+                    } else {
+                        tracing::info_span!(
+                            "http_request",
+                            method = %request.method(),
+                            path   = %path,
+                        )
+                    }
+                },
+            ),
+        )
         .with_state(shared_state);
 
     let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string()); // PORT will be set by the deployer

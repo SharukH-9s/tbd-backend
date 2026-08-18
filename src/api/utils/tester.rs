@@ -108,9 +108,18 @@ pub async fn keep_alive_worker() {
         }
     };
 
-    tracing::info!(url = %ping_url, "keep_alive_worker: started — pinging every 10 minutes");
+    let interval_secs: u64 = std::env::var("KEEP_ALIVE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10 * 60);
 
-    let mut ticker = interval(Duration::from_secs(10 * 60));
+    tracing::info!(
+        url = %ping_url,
+        interval_secs = interval_secs,
+        "keep_alive_worker: started"
+    );
+
+    let mut ticker = interval(Duration::from_secs(interval_secs));
     loop {
         ticker.tick().await; // first tick fires immediately
         match client.get(&ping_url).send().await {
