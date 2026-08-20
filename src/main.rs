@@ -339,10 +339,7 @@ async fn main() {
         )
         .route(
             "/settings/{id}",
-            axum::routing::put(
-                api::handlers::game_settings_handlers::update_settings::update_settings_handler,
-            )
-            .delete(
+            axum::routing::delete(
                 api::handlers::game_settings_handlers::delete_settings::delete_settings_handler,
             ),
         )

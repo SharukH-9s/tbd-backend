@@ -52,9 +52,3 @@ pub struct CreateGameSettingsRequest {
     pub slot_duration_mins: i32,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UpdateGameSettingsRequest {
-    pub label: Option<String>,
-    pub base_price: Option<BigDecimal>,
-    pub slot_duration_mins: Option<i32>,
-}

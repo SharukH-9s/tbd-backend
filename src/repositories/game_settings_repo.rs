@@ -62,30 +62,6 @@ impl GameSettingsRepository {
         .map_err(db_err!("Failed to fetch game settings from database (tx)")) // Result<Option<GameSettings>, AppError>
     }
 
-    /// Update an existing settings template (inside a transaction).
-    pub async fn update_tx(
-        executor: &mut sqlx::PgConnection,
-        id: i32,
-        label: &str, // deref coercion
-        base_price: BigDecimal,
-        slot_duration_mins: i32,
-    ) -> Result<GameSettings, AppError> {
-        sqlx::query_as!(
-            GameSettings,
-            "UPDATE game_settings
-             SET label = $1, base_price = $2, slot_duration_mins = $3
-             WHERE id = $4
-             RETURNING id, game_id, label, base_price, slot_duration_mins, created_at",
-            label,
-            base_price,
-            slot_duration_mins,
-            id,
-        )
-        .fetch_one(executor)
-        .await
-        .map_err(db_err!("Failed to update game settings in database")) // Result<GameSettings, AppError>
-    }
-
     /// Delete a settings template by ID (inside a transaction).
     /// Preserves FK-constraint detection: if linked slots exist, returns a specific message.
     pub async fn delete_tx(
