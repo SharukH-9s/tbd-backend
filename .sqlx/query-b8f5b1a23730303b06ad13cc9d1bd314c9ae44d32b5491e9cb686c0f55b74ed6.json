@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE outbox\n        SET    status = 'queued',\n               updated_at = NOW()\n        WHERE  status = 'publishing'\n        AND    updated_at < NOW() - INTERVAL '5 minutes'\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "b8f5b1a23730303b06ad13cc9d1bd314c9ae44d32b5491e9cb686c0f55b74ed6"
+}

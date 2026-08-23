@@ -3,9 +3,12 @@
 //! `tokio::spawn` task started from `main.rs`.
 
 use lapin::{
-    BasicProperties, Channel, Connection, ConnectionProperties, ExchangeKind,
-    options::{BasicPublishOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions},
+    options::{
+        BasicPublishOptions, ConfirmSelectOptions, ExchangeDeclareOptions, QueueBindOptions,
+        QueueDeclareOptions,
+    },
     types::{AMQPValue, FieldTable},
+    BasicProperties, Channel, Connection, ConnectionProperties, ExchangeKind,
 };
 use sqlx::PgPool;
 use std::time::Duration;
@@ -27,7 +30,10 @@ pub async fn run_relay(db: PgPool, amqp_url: String) {
         .and_then(|v| v.parse().ok())
         .unwrap_or(DEFAULT_POLL_INTERVAL_SECS);
 
-    tracing::info!(poll_interval_secs = poll_secs, "Relay task started — connecting to CloudAMQP...");
+    tracing::info!(
+        poll_interval_secs = poll_secs,
+        "Relay task started — connecting to CloudAMQP..."
+    );
 
     loop {
         match connect_and_run(&db, &amqp_url, poll_secs).await {
@@ -50,14 +56,48 @@ async fn connect_and_run(db: &PgPool, amqp_url: &str, poll_secs: u64) -> Result<
     let channel = conn.create_channel().await?; // create a channel on the connection.
     setup_topology(&channel).await?;
 
-    tracing::info!(poll_interval_secs = poll_secs, "Relay: topology ready — polling outbox");
+    // Recover any rows left in 'publishing' state from a previous crash/restart
+    if let Err(e) = recover_stale_publishing_rows(db).await {
+        tracing::error!(error = %e, "Relay: failed to recover stale publishing rows");
+    }
+
+    tracing::info!(
+        poll_interval_secs = poll_secs,
+        "Relay: topology ready — polling outbox"
+    );
     poll_loop(db, &channel, poll_secs).await;
+    Ok(())
+}
+
+/// Reset orphaned 'publishing' rows that may have been interrupted by a crash.
+async fn recover_stale_publishing_rows(db: &PgPool) -> anyhow::Result<()> {
+    let rows = sqlx::query!(
+        r#"
+        UPDATE outbox
+        SET    status = 'queued',
+               updated_at = NOW()
+        WHERE  status = 'publishing'
+        AND    updated_at < NOW() - INTERVAL '5 minutes'
+        "#
+    )
+    .execute(db)
+    .await?;
+
+    if rows.rows_affected() > 0 {
+        tracing::warn!(
+            count = rows.rows_affected(),
+            "Relay: recovered stale 'publishing' rows back to 'queued'"
+        );
+    }
     Ok(())
 }
 
 /// Declare the exchange and queues idempotently (durable = true).
 /// RabbitMQ creates them on first run; subsequent runs are no-ops.
 async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
+    // Enable publisher confirms
+    ch.confirm_select(ConfirmSelectOptions::default()).await?;
+
     // 1. Declare the DLX (Dead Letter Exchange)
     ch.exchange_declare(
         "tbd.dlx",
@@ -89,10 +129,10 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
     )
     .await?;
 
-    // 3. Declare the main exchange which will route messages/events to the appropriate queues
+    // 3. Declare the main exchange as a TOPIC exchange for selective routing
     ch.exchange_declare(
         EXCHANGE_NAME,
-        ExchangeKind::Fanout,
+        ExchangeKind::Topic,
         ExchangeDeclareOptions {
             durable: true,
             ..Default::default()
@@ -117,20 +157,22 @@ async fn setup_topology(ch: &Channel) -> Result<(), lapin::Error> {
         booking_args,
     )
     .await?;
+
+    // Bind booking_jobs to receive all booking.* events
     ch.queue_bind(
         "booking_jobs",
         EXCHANGE_NAME,
-        "", // Fanout exchange ignores the routing key
+        "booking.#",
         QueueBindOptions::default(),
         FieldTable::default(),
     )
     .await?;
 
-    tracing::info!("Relay: exchanges and queues declared (including DLX)");
+    tracing::info!("Relay: topic exchanges and queues declared (including DLX)");
     Ok(())
 }
 
-// ── Poll Loop ─────────────────────────────────────────────────────────────────
+// ── Poll Loop (Drain Loop) ───────────────────────────────────────────────────
 
 async fn poll_loop(db: &PgPool, ch: &Channel, poll_secs: u64) {
     let mut ticker = interval(Duration::from_secs(poll_secs));
@@ -142,8 +184,22 @@ async fn poll_loop(db: &PgPool, ch: &Channel, poll_secs: u64) {
             break;
         }
 
-        if let Err(e) = process_one(db, ch).await {
-            tracing::error!(error = %e, "Relay: error processing outbox row");
+        // Drain loop: continuously process all ready rows until outbox is empty
+        while ch.status().connected() {
+            match process_one(db, ch).await {
+                Ok(true) => {
+                    // Processed a row, immediately check for the next
+                    continue;
+                }
+                Ok(false) => {
+                    // Outbox is empty for now, sleep until next tick
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "Relay: error processing outbox row");
+                    break;
+                }
+            }
         }
     }
 }
@@ -158,7 +214,20 @@ struct OutboxRow {
     retry_count: i32,
 }
 
-async fn process_one(db: &PgPool, ch: &Channel) -> anyhow::Result<()> {
+/// Convert CamelCase/PascalCase event types to dot-notation routing keys.
+/// e.g. "BookingCreated" -> "booking.created"
+fn to_routing_key(event_type: &str) -> String {
+    let mut key = String::new();
+    for (i, ch) in event_type.chars().enumerate() {
+        if ch.is_uppercase() && i > 0 && !key.ends_with('.') {
+            key.push('.');
+        }
+        key.push(ch.to_ascii_lowercase());
+    }
+    key
+}
+
+async fn process_one(db: &PgPool, ch: &Channel) -> anyhow::Result<bool> {
     // Atomically claim one ready row. FOR UPDATE SKIP LOCKED prevents two relay
     // instances from ever claiming the same row simultaneously.
     let row = sqlx::query_as::<_, OutboxRow>(
@@ -180,25 +249,38 @@ async fn process_one(db: &PgPool, ch: &Channel) -> anyhow::Result<()> {
     .await?;
 
     let Some(row) = row else {
-        return Ok(()); // Nothing to process this tick
+        return Ok(false); // Nothing to process this tick
     };
 
-    tracing::info!(outbox_id = %row.id, event_type = %row.event_type, "Relay: publishing event");
+    let routing_key = to_routing_key(&row.event_type);
+    tracing::info!(
+        outbox_id = %row.id,
+        event_type = %row.event_type,
+        routing_key = %routing_key,
+        "Relay: publishing event envelope"
+    );
 
-    let body = serde_json::to_vec(&row.payload)?;
+    // Standardized Event Envelope
+    let envelope = serde_json::json!({
+        "id": row.id,
+        "event_type": row.event_type,
+        "timestamp": chrono::Utc::now().to_rfc3339(),
+        "payload": row.payload,
+    });
 
-    // publish the event/message to the exchange in RabbitMQ.
-    // the exchange is "tbd.events", which is declared as a Fanout exchange.
-    // RabbitMQ will broadcast this message to all bound queues (e.g. "booking_jobs").
+    let body = serde_json::to_vec(&envelope)?;
+
+    // Publish to Topic Exchange with standardized routing key
     let publish_result = ch
         .basic_publish(
             EXCHANGE_NAME,
-            "", // routing key is ignored by Fanout exchanges
+            &routing_key,
             BasicPublishOptions::default(),
             &body,
             BasicProperties::default()
                 .with_delivery_mode(2) // 2 = persistent (survives broker restart)
-                .with_content_type("application/json".into()),
+                .with_content_type("application/json".into())
+                .with_message_id(row.id.to_string().into()),
         )
         .await;
 
@@ -213,7 +295,7 @@ async fn process_one(db: &PgPool, ch: &Channel) -> anyhow::Result<()> {
         }
     }
 
-    Ok(())
+    Ok(true)
 }
 
 // ── Status Helpers ────────────────────────────────────────────────────────────
