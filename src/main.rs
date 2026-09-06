@@ -1,4 +1,5 @@
 mod api;
+mod cache;
 mod config;
 mod domain;
 mod repositories;
@@ -161,10 +162,19 @@ async fn main() {
         .expect("Failed to create Redis connection pool. Ensure REDIS_URL is reachable.");
     tracing::info!("Initialized Redis connection pool");
 
+    // L1: in-process moka cache (30s TTL, 500 entry cap).
+    let cache = crate::cache::l1::L1Cache::new();
+    // L2: Redis distributed cache (5 min TTL). Clones the pool — deadpool_redis::Pool is
+    // Arc-backed internally so this is a zero-cost refcount bump, not a new connection pool.
+    let l2_cache = crate::cache::l2::L2Cache::new(redis_pool.clone());
+    tracing::info!("L1 in-process cache initialized (moka, 30s TTL, 500 cap)");
+
     let shared_state: SharedState = Arc::new(AppState {
         db,
         jwt_secret: Arc::new(secret.into_bytes()),
         redis_pool,
+        l2_cache,
+        cache,
     });
 
     // Ensure the root Administrator exists on startup

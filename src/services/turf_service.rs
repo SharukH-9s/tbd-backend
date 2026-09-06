@@ -3,10 +3,50 @@ use crate::domain::errors::{AppError, error_codes};
 use crate::domain::models::turfs::Turf;
 use crate::repositories::turf_repo::TurfRepository;
 use crate::repositories::user_repo::UserRepository;
+use std::sync::Arc;
 
 pub struct TurfService;
 
 impl TurfService {
+    // -----------------------------------------------------------------------
+    // Cache invalidation helper
+    // -----------------------------------------------------------------------
+
+    /// Invalidates all L1 and L2 cache keys affected by a turf write.
+    ///
+    /// - `turf_id`: `Some(id)` to also invalidate the per-turf key; `None` on creates.
+    /// - `manager_ids`: every manager whose `cache:turf:manager:{id}` list must be
+    ///   flushed (pass both old and new on a manager reassignment).
+    async fn invalidate_turf_cache(
+        state: &SharedState,
+        turf_id: Option<i32>,
+        manager_ids: &[i32],
+    ) {
+        // 1. Per-turf key (only meaningful on update / delete)
+        if let Some(id) = turf_id {
+            let specific_key = format!("cache:turf:{}", id);
+            state.l2_cache.delete(&specific_key).await;
+            state.cache.invalidate(&specific_key).await;
+        }
+
+        // 2. Global list (any write changes the full collection)
+        let all_key = "cache:turf:all";
+        state.l2_cache.delete(all_key).await;
+        state.cache.invalidate(all_key).await;
+
+        // 3. Per-manager lists
+        // On update, pass both [old_manager_id, new_manager_id] so both lists are flushed.
+        for mgr_id in manager_ids {
+            let mgr_key = format!("cache:turf:manager:{}", mgr_id);
+            state.l2_cache.delete(&mgr_key).await;
+            state.cache.invalidate(&mgr_key).await;
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Read operations
+    // -----------------------------------------------------------------------
+
     #[tracing::instrument(skip(state), fields(user_id, role = ?user_role), name = "turf.get_all")]
     pub async fn get_all_turfs(
         state: &SharedState,
@@ -14,29 +54,112 @@ impl TurfService {
         user_role: crate::domain::models::users::Role,
     ) -> Result<Vec<Turf>, AppError> {
         match user_role {
-            crate::domain::models::users::Role::Admin => {
-                // Admins see all turfs
-                TurfRepository::find_all(state).await
-            }
             crate::domain::models::users::Role::Manager => {
                 // Managers see only their own turfs
-                TurfRepository::find_by_manager_id(state, user_id).await
+                let cache_key = format!("cache:turf:manager:{}", user_id);
+
+                let json_arc = state
+                    .cache
+                    .try_get_with(&cache_key, async {
+                        // L2 check
+                        if let Some(json) = state.l2_cache.get(&cache_key).await {
+                            tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
+                            return Ok::<Arc<str>, AppError>(json.into());
+                        }
+                        // DB fallback
+                        tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                        let turfs = TurfRepository::find_by_manager_id(state, user_id).await?;
+                        let json = serde_json::to_string(&turfs)
+                            .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                        state.l2_cache.set(&cache_key, &json, 300).await;
+                        Ok(json.into())
+                    })
+                    .await
+                    .map_err(|e| {
+                        if e.status == axum::http::StatusCode::NOT_FOUND {
+                            return AppError::not_found(e.code, e.message);
+                        }
+                        AppError::internal("CACHE_ERROR", "Cache fetch failed")
+                    })?;
+
+                tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+                let turfs = serde_json::from_str(&json_arc)
+                    .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
+                Ok(turfs)
             }
-            crate::domain::models::users::Role::User => {
-                // Normal users see all turfs
-                TurfRepository::find_all(state).await
+
+            crate::domain::models::users::Role::Admin
+            | crate::domain::models::users::Role::User => {
+                // Admins and normal users see all turfs
+                let cache_key = "cache:turf:all";
+
+                let json_arc = state
+                    .cache
+                    .try_get_with(cache_key, async {
+                        if let Some(json) = state.l2_cache.get(cache_key).await {
+                            tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
+                            return Ok::<Arc<str>, AppError>(json.into());
+                        }
+                        tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                        let turfs = TurfRepository::find_all(state).await?;
+                        let json = serde_json::to_string(&turfs)
+                            .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                        state.l2_cache.set(cache_key, &json, 300).await;
+                        Ok(json.into())
+                    })
+                    .await
+                    .map_err(|e| {
+                        if e.status == axum::http::StatusCode::NOT_FOUND {
+                            return AppError::not_found(e.code, e.message);
+                        }
+                        AppError::internal("CACHE_ERROR", "Cache fetch failed")
+                    })?;
+
+                tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+                let turfs = serde_json::from_str(&json_arc)
+                    .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
+                Ok(turfs)
             }
         }
     }
 
     #[tracing::instrument(skip(state), fields(turf_id = id), name = "turf.get_by_id")]
     pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
-        let turf = TurfRepository::find_by_id(state, id).await?;
-        match turf {
-            Some(t) => Ok(t),
-            None => Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
-        }
+        let cache_key = format!("cache:turf:{}", id);
+
+        let json_arc = state
+            .cache
+            .try_get_with(&cache_key, async {
+                if let Some(json) = state.l2_cache.get(&cache_key).await {
+                    tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
+                    return Ok::<Arc<str>, AppError>(json.into());
+                }
+                tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                let turf = TurfRepository::find_by_id(state, id)
+                    .await?
+                    .ok_or_else(|| AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found"))?;
+                let json = serde_json::to_string(&turf)
+                    .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                state.l2_cache.set(&cache_key, &json, 300).await;
+                Ok(json.into())
+            })
+            .await
+            .map_err(|e| {
+                if e.status == axum::http::StatusCode::NOT_FOUND {
+                    return AppError::not_found(e.code, e.message);
+                }
+                AppError::internal("CACHE_ERROR", "Cache fetch failed")
+            })?;
+
+        tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+        let turf = serde_json::from_str(&json_arc)
+            .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
+        Ok(turf)
     }
+
+    // -----------------------------------------------------------------------
+    // Write operations
+    // -----------------------------------------------------------------------
 
     #[tracing::instrument(skip(state, manager_password), fields(creator_id, turf_name = name, manager_email = ?manager_email), name = "turf.create")]
     pub async fn create_turf(
@@ -84,7 +207,7 @@ impl TurfService {
 
                     let user_data = (
                         uname,
-                        email.to_string(), // email is &String here
+                        email.to_string(),
                         hashed_password,
                         "0000000000".to_string(),
                         crate::domain::models::users::Role::Manager,
@@ -104,6 +227,9 @@ impl TurfService {
                 .await?;
 
         tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes"))?;
+
+        // Invalidate: global list + new manager's list
+        Self::invalidate_turf_cache(state, None, &[final_manager_id]).await;
 
         Ok(newly_created_turf)
     }
@@ -194,6 +320,15 @@ impl TurfService {
 
         tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for turf update"))?;
 
+        // Invalidate: per-turf key, global list, old manager list, new manager list.
+        // Both old and new manager IDs are passed so both per-manager caches are flushed.
+        Self::invalidate_turf_cache(
+            state,
+            Some(turf_id),
+            &[old_manager_id, final_manager_id],
+        )
+        .await;
+
         Ok(updated_turf)
     }
 
@@ -230,6 +365,11 @@ impl TurfService {
             }
         }
 
-        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for turf deletion")) // returns Result<(), AppError>
+        tx.commit().await.map_err(|_| AppError::internal(error_codes::TRANSACTION_COMMIT_FAILED, "Failed to finalize database changes for turf deletion"))?;
+
+        // Invalidate: per-turf key, global list, manager's list
+        Self::invalidate_turf_cache(state, Some(id), &[manager_id]).await;
+
+        Ok(())
     }
 }
