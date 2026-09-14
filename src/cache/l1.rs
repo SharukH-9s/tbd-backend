@@ -49,6 +49,14 @@ impl L1Cache {
         self.inner.try_get_with(key.to_string(), init).await
     }
 
+    /// Returns a value only when it is already present in the in-process cache.
+    pub async fn get(&self, key: &str) -> Option<Arc<str>> {
+        if !self.enabled {
+            return None;
+        }
+        self.inner.get(key).await
+    }
+
     /// Inserts `value` under `key`. Overwrites any existing entry.
     pub async fn set(&self, key: &str, value: impl Into<Arc<str>>) {
         if !self.enabled {

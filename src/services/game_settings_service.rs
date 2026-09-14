@@ -55,6 +55,12 @@ impl GameSettingsService {
 
         let cache_key = format!("cache:settings:game:{}", game_id);
 
+        if let Some(json_arc) = state.cache.get(&cache_key).await {
+            tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+            return serde_json::from_str(&json_arc)
+                .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+        }
+
         let json_arc = state
             .cache
             .try_get_with(&cache_key, async {
@@ -77,7 +83,6 @@ impl GameSettingsService {
                 AppError::internal("CACHE_ERROR", "Cache fetch failed")
             })?;
 
-        tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
         let settings = serde_json::from_str(&json_arc)
             .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
         Ok(settings)

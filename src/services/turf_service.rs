@@ -58,6 +58,12 @@ impl TurfService {
                 // Managers see only their own turfs
                 let cache_key = format!("cache:turf:manager:{}", user_id);
 
+                if let Some(json_arc) = state.cache.get(&cache_key).await {
+                    tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+                    return serde_json::from_str(&json_arc)
+                        .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+                }
+
                 let json_arc = state
                     .cache
                     .try_get_with(&cache_key, async {
@@ -82,7 +88,6 @@ impl TurfService {
                         AppError::internal("CACHE_ERROR", "Cache fetch failed")
                     })?;
 
-                tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
                 let turfs = serde_json::from_str(&json_arc)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
                 Ok(turfs)
@@ -92,6 +97,12 @@ impl TurfService {
             | crate::domain::models::users::Role::User => {
                 // Admins and normal users see all turfs
                 let cache_key = "cache:turf:all";
+
+                if let Some(json_arc) = state.cache.get(cache_key).await {
+                    tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+                    return serde_json::from_str(&json_arc)
+                        .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+                }
 
                 let json_arc = state
                     .cache
@@ -115,7 +126,6 @@ impl TurfService {
                         AppError::internal("CACHE_ERROR", "Cache fetch failed")
                     })?;
 
-                tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
                 let turfs = serde_json::from_str(&json_arc)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
                 Ok(turfs)
@@ -126,6 +136,12 @@ impl TurfService {
     #[tracing::instrument(skip(state), fields(turf_id = id), name = "turf.get_by_id")]
     pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
         let cache_key = format!("cache:turf:{}", id);
+
+        if let Some(json_arc) = state.cache.get(&cache_key).await {
+            tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+            return serde_json::from_str(&json_arc)
+                .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+        }
 
         let json_arc = state
             .cache
@@ -151,7 +167,6 @@ impl TurfService {
                 AppError::internal("CACHE_ERROR", "Cache fetch failed")
             })?;
 
-        tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
         let turf = serde_json::from_str(&json_arc)
             .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
         Ok(turf)

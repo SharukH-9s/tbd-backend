@@ -49,6 +49,12 @@ impl GameService {
 
         let cache_key = format!("cache:game:turf:{}", turf_id);
 
+        if let Some(json_arc) = state.cache.get(&cache_key).await {
+            tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+            return serde_json::from_str(&json_arc)
+                .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+        }
+
         let json_arc = state
             .cache
             .try_get_with(&cache_key, async {
@@ -71,7 +77,6 @@ impl GameService {
                 AppError::internal("CACHE_ERROR", "Cache fetch failed")
             })?;
 
-        tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
         let games = serde_json::from_str(&json_arc)
             .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
         Ok(games)
@@ -80,6 +85,12 @@ impl GameService {
     #[tracing::instrument(skip(state), fields(game_id), name = "game.get_by_id")]
     pub async fn get_game_by_id(state: &SharedState, game_id: i32) -> Result<Game, AppError> {
         let cache_key = format!("cache:game:{}", game_id);
+
+        if let Some(json_arc) = state.cache.get(&cache_key).await {
+            tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
+            return serde_json::from_str(&json_arc)
+                .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+        }
 
         let json_arc = state
             .cache
@@ -109,7 +120,6 @@ impl GameService {
                 AppError::internal("CACHE_ERROR", "Cache fetch failed")
             })?;
 
-        tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
         let game = serde_json::from_str(&json_arc)
             .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
         Ok(game)
