@@ -156,11 +156,20 @@ async fn main() {
 
     // Connect to Redis using a deadpool-redis connection pool.
     // Connection pooling eliminates the bottleneck of a single shared TCP connection under high concurrency.
-    let redis_cfg = deadpool_redis::Config::from_url(redis_url);
+    let mut redis_cfg = deadpool_redis::Config::from_url(redis_url);
+    redis_cfg.pool = Some(deadpool_redis::PoolConfig {
+        max_size: 16,
+        timeouts: deadpool_redis::Timeouts {
+            wait: Some(std::time::Duration::from_millis(100)),
+            create: Some(std::time::Duration::from_millis(250)),
+            recycle: Some(std::time::Duration::from_millis(50)),
+        },
+        ..Default::default()
+    });
     let redis_pool = redis_cfg
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
         .expect("Failed to create Redis connection pool. Ensure REDIS_URL is reachable.");
-    tracing::info!("Initialized Redis connection pool");
+    tracing::info!("Initialized Redis connection pool (timeouts: wait=100ms, create=250ms, recycle=50ms)");
 
     // Environment toggles for diagnosing bottlenecks or running without Redis / caches:
     let disable_all_cache = env::var("DISABLE_CACHE")

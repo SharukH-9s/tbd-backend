@@ -89,29 +89,22 @@ where
 
         // Check Redis blacklist for this token's jti if Redis is enabled.
         // If the key exists, the token has been revoked (user logged out).
-        // Fail-Open: if Redis is down, we allow the request through to avoid an outage.
+        // Fail-Open: bounded to 100ms — if Redis is down or slow, we allow the request through to avoid an outage.
         if state.redis_enabled {
             let blacklist_key = format!("blacklist:jti:{}", claims.jti);
-            let blacklist_res = match state.redis_pool.get().await {
-                Ok(mut conn) => {
-                    let res: Result<bool, _> = redis::cmd("EXISTS")
-                        .arg(&blacklist_key)
-                        .query_async(&mut conn)
-                        .await;
-                    res
-                }
-                Err(e) => {
-                    tracing::error!(
-                        error = %e,
-                        jti = %claims.jti,
-                        "Failed to get Redis connection from pool during blacklist check — failing open"
-                    );
-                    Ok(false)
-                }
+
+            let check_future = async {
+                let mut conn = state.redis_pool.get().await.map_err(|e| e.to_string())?;
+                let res: bool = redis::cmd("EXISTS")
+                    .arg(&blacklist_key)
+                    .query_async(&mut conn)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok::<bool, String>(res)
             };
 
-            match blacklist_res {
-                Ok(true) => {
+            match tokio::time::timeout(std::time::Duration::from_millis(100), check_future).await {
+                Ok(Ok(true)) => {
                     return Err(AppError {
                         code: error_codes::REVOKED_TOKEN,
                         message: "Token has been revoked",
@@ -119,13 +112,20 @@ where
                     }
                     .into_response());
                 }
-                Ok(false) => {} // Token is valid, proceed
-                Err(e) => {
-                    // Fail-Open: Redis is down — log and allow through
-                    tracing::error!(
+                Ok(Ok(false)) => {} // Token is valid, proceed
+                Ok(Err(e)) => {
+                    // Fail-Open: Redis error (e.g. pool timeout or connection failure)
+                    tracing::warn!(
                         error = %e,
                         jti = %claims.jti,
-                        "Redis unavailable during blacklist check — failing open"
+                        "Redis blacklist query failed — failing open"
+                    );
+                }
+                Err(_elapsed) => {
+                    // Fail-Open: 100ms timeout exceeded (Redis cold or stalling)
+                    tracing::warn!(
+                        jti = %claims.jti,
+                        "Redis blacklist check timed out after 100ms — failing open"
                     );
                 }
             }
