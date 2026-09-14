@@ -12,15 +12,19 @@ use redis::AsyncCommands;
 #[derive(Clone)] // Cloning deadpool_redis::Pool increments an internal Arc reference count — zero copy.
 pub struct L2Cache {
     pool: Pool,
+    enabled: bool,
 }
 
 impl L2Cache {
-    pub fn new(pool: Pool) -> Self {
-        Self { pool }
+    pub fn new(pool: Pool, enabled: bool) -> Self {
+        Self { pool, enabled }
     }
 
     /// Returns the cached JSON string for `key`, or `None` on a miss or error.
     pub async fn get(&self, key: &str) -> Option<String> {
+        if !self.enabled {
+            return None;
+        }
         // Borrow a pooled connection; any error is silently treated as a miss.
         let mut conn = self.pool.get().await.ok()?;
         // GET the key and parse the result into Option<String>.
@@ -29,6 +33,9 @@ impl L2Cache {
 
     /// Stores `value` under `key` with a TTL. Errors are silently discarded.
     pub async fn set(&self, key: &str, value: &str, ttl_secs: u64) {
+        if !self.enabled {
+            return;
+        }
         if let Ok(mut conn) = self.pool.get().await {
             // `_: Result<(), _>` explicitly discards the return value.
             let _: Result<(), _> = conn.set_ex(key, value, ttl_secs).await;
@@ -37,6 +44,9 @@ impl L2Cache {
 
     /// Deletes a single `key`. Errors are silently discarded.
     pub async fn delete(&self, key: &str) {
+        if !self.enabled {
+            return;
+        }
         if let Ok(mut conn) = self.pool.get().await {
             let _: Result<(), _> = conn.del(key).await;
         }
@@ -51,6 +61,9 @@ impl L2Cache {
     /// connection for the iterator's lifetime via `AsyncIter<'_>`), and one for
     /// the subsequent DEL calls. Both are returned to the pool when done.
     pub async fn delete_pattern(&self, pattern: &str) {
+        if !self.enabled {
+            return;
+        }
         // Phase 1: collect all matching keys via SCAN on a dedicated connection.
         // `AsyncIter<'_>` borrows `scan_conn` for its entire lifetime; we collect
         // into a Vec and drop both the stream and `scan_conn` before Phase 2.

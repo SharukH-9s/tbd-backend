@@ -15,10 +15,11 @@ use std::time::Duration;
 #[derive(Clone)] // Cloning moka::future::Cache increments an internal Arc reference count — zero copy.
 pub struct L1Cache {
     inner: Cache<String, Arc<str>>,
+    enabled: bool,
 }
 
 impl L1Cache {
-    pub fn new() -> Self {
+    pub fn new(enabled: bool) -> Self {
         Self {
             inner: Cache::builder()
                 .max_capacity(500)
@@ -26,6 +27,7 @@ impl L1Cache {
                 // Required for `invalidate_entries_if` (bulk prefix invalidation).
                 .support_invalidation_closures()
                 .build(),
+            enabled,
         }
     }
 
@@ -34,21 +36,32 @@ impl L1Cache {
     /// Moka's stampede coalescing: if 100 concurrent requests arrive while L1 is
     /// cold, only ONE executes `init`. The other 99 wait and receive the same result,
     /// protecting L2 and DB from fan-out.
+    ///
+    /// If caching is disabled, executes `init` directly without touching Moka.
     pub async fn try_get_with<F, E>(&self, key: &str, init: F) -> Result<Arc<str>, Arc<E>>
     where
         F: std::future::Future<Output = Result<Arc<str>, E>>,
         E: Send + Sync + 'static,
     {
+        if !self.enabled {
+            return init.await.map_err(Arc::new);
+        }
         self.inner.try_get_with(key.to_string(), init).await
     }
 
     /// Inserts `value` under `key`. Overwrites any existing entry.
     pub async fn set(&self, key: &str, value: impl Into<Arc<str>>) {
+        if !self.enabled {
+            return;
+        }
         self.inner.insert(key.to_string(), value.into()).await;
     }
 
     /// Removes `key` from the cache immediately.
     pub async fn invalidate(&self, key: &str) {
+        if !self.enabled {
+            return;
+        }
         self.inner.invalidate(key).await;
     }
 
@@ -57,6 +70,9 @@ impl L1Cache {
     /// Uses Moka's internal predicate worker — non-blocking for the caller.
     /// Errors are logged but never propagated (cache is a best-effort layer).
     pub fn invalidate_prefix(&self, prefix: &str) {
+        if !self.enabled {
+            return;
+        }
         let prefix = prefix.to_string();
         // `move` transfers ownership of `prefix` into the closure.
         // Moka passes (key, value) for every cached entry; `_` discards the value.
@@ -68,6 +84,6 @@ impl L1Cache {
 
 impl Default for L1Cache {
     fn default() -> Self {
-        Self::new()
+        Self::new(true)
     }
 }

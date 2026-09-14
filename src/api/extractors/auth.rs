@@ -87,45 +87,47 @@ where
 
         let claims: Claims = token_data.claims;
 
-        // Check Redis blacklist for this token's jti.
+        // Check Redis blacklist for this token's jti if Redis is enabled.
         // If the key exists, the token has been revoked (user logged out).
         // Fail-Open: if Redis is down, we allow the request through to avoid an outage.
-        let blacklist_key = format!("blacklist:jti:{}", claims.jti);
-        let blacklist_res = match state.redis_pool.get().await {
-            Ok(mut conn) => {
-                let res: Result<bool, _> = redis::cmd("EXISTS")
-                    .arg(&blacklist_key)
-                    .query_async(&mut conn)
-                    .await;
-                res
-            }
-            Err(e) => {
-                tracing::error!(
-                    error = %e,
-                    jti = %claims.jti,
-                    "Failed to get Redis connection from pool during blacklist check — failing open"
-                );
-                Ok(false)
-            }
-        };
-
-        match blacklist_res {
-            Ok(true) => {
-                return Err(AppError {
-                    code: error_codes::REVOKED_TOKEN,
-                    message: "Token has been revoked",
-                    status: StatusCode::UNAUTHORIZED,
+        if state.redis_enabled {
+            let blacklist_key = format!("blacklist:jti:{}", claims.jti);
+            let blacklist_res = match state.redis_pool.get().await {
+                Ok(mut conn) => {
+                    let res: Result<bool, _> = redis::cmd("EXISTS")
+                        .arg(&blacklist_key)
+                        .query_async(&mut conn)
+                        .await;
+                    res
                 }
-                .into_response());
-            }
-            Ok(false) => {} // Token is valid, proceed
-            Err(e) => {
-                // Fail-Open: Redis is down — log and allow through
-                tracing::error!(
-                    error = %e,
-                    jti = %claims.jti,
-                    "Redis unavailable during blacklist check — failing open"
-                );
+                Err(e) => {
+                    tracing::error!(
+                        error = %e,
+                        jti = %claims.jti,
+                        "Failed to get Redis connection from pool during blacklist check — failing open"
+                    );
+                    Ok(false)
+                }
+            };
+
+            match blacklist_res {
+                Ok(true) => {
+                    return Err(AppError {
+                        code: error_codes::REVOKED_TOKEN,
+                        message: "Token has been revoked",
+                        status: StatusCode::UNAUTHORIZED,
+                    }
+                    .into_response());
+                }
+                Ok(false) => {} // Token is valid, proceed
+                Err(e) => {
+                    // Fail-Open: Redis is down — log and allow through
+                    tracing::error!(
+                        error = %e,
+                        jti = %claims.jti,
+                        "Redis unavailable during blacklist check — failing open"
+                    );
+                }
             }
         }
 

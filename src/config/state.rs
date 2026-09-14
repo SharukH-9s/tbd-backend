@@ -9,6 +9,7 @@ pub struct AppState {
     pub redis_pool: deadpool_redis::Pool, // Thread-safe pool of Redis connections. Used by rate limiter, auth extractor, logout, and cleanup worker.
     pub l2_cache: L2Cache,     // L2: Redis distributed cache. Backed by a clone of redis_pool (zero cost — Pool is Arc-wrapped internally).
     pub cache: L1Cache,        // L1: in-process moka cache. 30s TTL, 500 entry cap.
+    pub redis_enabled: bool,   // When false, all Redis operations (rate limiting, blacklist, L2 cache, locks) are bypassed.
 }
 
 pub type SharedState = Arc<AppState>; // shorthand type alias. variables of type SharedState are an Arc-wrapped AppState, safe to share across threads.

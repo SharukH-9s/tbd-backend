@@ -5,6 +5,28 @@ use tokio::time::{Duration, interval};
 
 #[tracing::instrument(name = "worker.cleanup", skip(state))]
 async fn execute_cleanup(state: &SharedState) {
+    if !state.redis_enabled {
+        // Redis disabled: execute database cleanups directly without distributed lock.
+        match SlotRepository::reset_expired_pending_slots(&state.db).await {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("[cleanup] Reset {} expired pending slot(s) to Available", n)
+            }
+            Err(e) => tracing::error!(error = ?e, "[cleanup] Failed to reset pending slots"),
+        }
+
+        match BookingRepository::delete_orphaned_unpaid_bookings(&state.db).await {
+            Ok(0) => {}
+            Ok(n) => {
+                tracing::info!("[cleanup] Deleted {} orphaned Unpaid booking record(s)", n)
+            }
+            Err(e) => {
+                tracing::error!(error = ?e, "[cleanup] Failed to delete orphaned bookings")
+            }
+        }
+        return;
+    }
+
     // Try to acquire a 10-second lock in Redis
     // "NX" means: Only set the key if it does not already exist
     // "EX 10" means: Automatically delete this key after 10 seconds (fail-safe expiration)

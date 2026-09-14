@@ -162,12 +162,40 @@ async fn main() {
         .expect("Failed to create Redis connection pool. Ensure REDIS_URL is reachable.");
     tracing::info!("Initialized Redis connection pool");
 
+    // Environment toggles for diagnosing bottlenecks or running without Redis / caches:
+    let disable_all_cache = env::var("DISABLE_CACHE")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+
+    let redis_disabled = env::var("DISABLE_REDIS")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+
+    let l1_disabled = disable_all_cache
+        || env::var("DISABLE_L1_CACHE")
+            .map(|v| v.to_lowercase() == "true" || v == "1")
+            .unwrap_or(false);
+
+    let redis_enabled = !redis_disabled;
+    let l1_enabled = !l1_disabled;
+    let l2_enabled = redis_enabled && !disable_all_cache;
+
+    if !redis_enabled {
+        tracing::warn!("⚠️  Redis is DISABLED via DISABLE_REDIS=true. Rate limiting, token blacklist, and Redis distributed operations are bypassed.");
+    }
+    if !l1_enabled {
+        tracing::warn!("⚠️  L1 Cache is DISABLED via DISABLE_L1_CACHE=true (or DISABLE_CACHE=true). In-process caching is bypassed.");
+    }
+    if !l2_enabled && redis_enabled {
+        tracing::warn!("⚠️  L2 Cache is DISABLED via DISABLE_CACHE=true.");
+    }
+
     // L1: in-process moka cache (30s TTL, 500 entry cap).
-    let cache = crate::cache::l1::L1Cache::new();
+    let cache = crate::cache::l1::L1Cache::new(l1_enabled);
     // L2: Redis distributed cache (5 min TTL). Clones the pool — deadpool_redis::Pool is
     // Arc-backed internally so this is a zero-cost refcount bump, not a new connection pool.
-    let l2_cache = crate::cache::l2::L2Cache::new(redis_pool.clone());
-    tracing::info!("L1 in-process cache initialized (moka, 30s TTL, 500 cap)");
+    let l2_cache = crate::cache::l2::L2Cache::new(redis_pool.clone(), l2_enabled);
+    tracing::info!(l1 = l1_enabled, l2 = l2_enabled, "Cache initialization complete");
 
     let shared_state: SharedState = Arc::new(AppState {
         db,
@@ -175,6 +203,7 @@ async fn main() {
         redis_pool,
         l2_cache,
         cache,
+        redis_enabled,
     });
 
     // Ensure the root Administrator exists on startup

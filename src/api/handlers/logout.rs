@@ -32,7 +32,7 @@ pub async fn logout_handler(
                     let now = chrono::Utc::now().timestamp();
                     let remaining_ttl = claims.exp - now;
 
-                    if remaining_ttl > 0 {
+                    if database.redis_enabled && remaining_ttl > 0 {
                         // if the remaining ttl is less than 0, the token is already expired, so we don't need to blacklist it.
                         let blacklist_key = format!("blacklist:jti:{}", claims.jti);
 

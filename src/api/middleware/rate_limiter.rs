@@ -140,6 +140,10 @@ pub async fn auth_rate_limiter(
     req: Request,                                      // The actual HTTP data (headers, body, URL)
     next: Next, // A representation of the next layer in the pipeline. If we allow the request to pass, we call next.run(req) to send it to the next layer.
 ) -> Response {
+    if !state.redis_enabled {
+        return next.run(req).await;
+    }
+
     const WINDOW_SECS: u64 = 10; // duration of the window in seconds
     const MAX_REQUESTS: u64 = 3; // maximum number of requests allowed in the window
 
@@ -225,6 +229,10 @@ pub async fn api_rate_limiter(
     req: Request,
     next: Next,
 ) -> Response {
+    if !state.redis_enabled {
+        return next.run(req).await;
+    }
+
     const WINDOW_SECS: u64 = 60;
     const MAX_REQUESTS: u64 = 100;
 
