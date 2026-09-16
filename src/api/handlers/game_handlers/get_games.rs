@@ -1,3 +1,4 @@
+use crate::api::extractors::types::Claims;
 use crate::config::state::SharedState;
 use crate::domain::dtos::responses::SuccessResponse;
 use crate::domain::errors::AppError;
@@ -6,9 +7,10 @@ use axum::{Json, extract::Path, extract::State, http::StatusCode, response::Into
 
 pub async fn get_games_handler(
     State(database): State<SharedState>,
+    claims: Claims,
     Path(turf_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    let games = GameService::get_games_for_turf(&database, turf_id).await?;
+    let games = GameService::get_games_for_turf(&database, turf_id, claims.sub, claims.role).await?;
 
     Ok((
         StatusCode::OK,

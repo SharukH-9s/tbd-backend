@@ -133,42 +133,54 @@ impl TurfService {
         }
     }
 
-    #[tracing::instrument(skip(state), fields(turf_id = id), name = "turf.get_by_id")]
-    pub async fn get_turf_by_id(state: &SharedState, id: i32) -> Result<Turf, AppError> {
+    #[tracing::instrument(skip(state), fields(turf_id = id, caller_id, role = ?caller_role), name = "turf.get_by_id")]
+    pub async fn get_turf_by_id(
+        state: &SharedState,
+        id: i32,
+        caller_id: i32,
+        caller_role: crate::domain::models::users::Role,
+    ) -> Result<Turf, AppError> {
         let cache_key = format!("cache:turf:{}", id);
 
-        if let Some(json_arc) = state.cache.get(&cache_key).await {
+        let json_arc = if let Some(cached) = state.cache.get(&cache_key).await {
             tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
-            return serde_json::from_str(&json_arc)
-                .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"));
+            cached
+        } else {
+            state
+                .cache
+                .try_get_with(&cache_key, async {
+                    if let Some(json) = state.l2_cache.get(&cache_key).await {
+                        tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
+                        return Ok::<Arc<str>, AppError>(json.into());
+                    }
+                    tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                    let turf = TurfRepository::find_by_id(state, id)
+                        .await?
+                        .ok_or_else(|| AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found"))?;
+                    let json = serde_json::to_string(&turf)
+                        .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                    state.l2_cache.set(&cache_key, &json, 300).await;
+                    Ok(json.into())
+                })
+                .await
+                .map_err(|e| {
+                    if e.status == axum::http::StatusCode::NOT_FOUND {
+                        return AppError::not_found(e.code, e.message);
+                    }
+                    AppError::internal("CACHE_ERROR", "Cache fetch failed")
+                })?
+        };
+
+        let turf: Turf = serde_json::from_str(&json_arc)
+            .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
+
+        if matches!(caller_role, crate::domain::models::users::Role::Manager) && turf.manager_id != caller_id {
+            return Err(AppError::forbidden(
+                error_codes::FORBIDDEN,
+                "You do not have permission to view this turf",
+            ));
         }
 
-        let json_arc = state
-            .cache
-            .try_get_with(&cache_key, async {
-                if let Some(json) = state.l2_cache.get(&cache_key).await {
-                    tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
-                    return Ok::<Arc<str>, AppError>(json.into());
-                }
-                tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
-                let turf = TurfRepository::find_by_id(state, id)
-                    .await?
-                    .ok_or_else(|| AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found"))?;
-                let json = serde_json::to_string(&turf)
-                    .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
-                state.l2_cache.set(&cache_key, &json, 300).await;
-                Ok(json.into())
-            })
-            .await
-            .map_err(|e| {
-                if e.status == axum::http::StatusCode::NOT_FOUND {
-                    return AppError::not_found(e.code, e.message);
-                }
-                AppError::internal("CACHE_ERROR", "Cache fetch failed")
-            })?;
-
-        let turf = serde_json::from_str(&json_arc)
-            .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Deserialization failed"))?;
         Ok(turf)
     }
 

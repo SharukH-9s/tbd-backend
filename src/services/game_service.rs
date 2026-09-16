@@ -33,17 +33,29 @@ impl GameService {
     // Read operations
     // -----------------------------------------------------------------------
 
-    #[tracing::instrument(skip(state), fields(turf_id), name = "game.get_for_turf")]
+    #[tracing::instrument(skip(state), fields(turf_id, caller_id, role = ?caller_role), name = "game.get_for_turf")]
     pub async fn get_games_for_turf(
         state: &SharedState,
         turf_id: i32,
+        caller_id: i32,
+        caller_role: crate::domain::models::users::Role,
     ) -> Result<Vec<Game>, AppError> {
         // Verify turf exists first (clean 404 before touching the cache)
         let turf = TurfRepository::find_by_id(state, turf_id).await?;
-        if turf.is_none() {
-            return Err(AppError::not_found(
-                error_codes::TURF_NOT_FOUND,
-                "Turf not found",
+        let turf = match turf {
+            Some(t) => t,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::TURF_NOT_FOUND,
+                    "Turf not found",
+                ));
+            }
+        };
+
+        if matches!(caller_role, crate::domain::models::users::Role::Manager) && turf.manager_id != caller_id {
+            return Err(AppError::forbidden(
+                error_codes::FORBIDDEN,
+                "You do not have permission to view games for this turf",
             ));
         }
 
