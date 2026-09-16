@@ -5,8 +5,7 @@ use crate::domain::models::users::Role;
 use crate::repositories::game_repo::GameRepository;
 use crate::repositories::slot_repo::SlotRepository;
 use crate::repositories::turf_repo::TurfRepository;
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
-use chrono_tz::Asia::Dhaka;
+use chrono::NaiveTime;
 use std::sync::Arc;
 
 pub struct GameService;
@@ -266,50 +265,19 @@ impl GameService {
         // 5. Window-conflict guard
         if final_start != existing_game.game_start_time || final_end != existing_game.game_end_time
         {
-            let today: NaiveDate = Utc::now().with_timezone(&Dhaka).date_naive();
-
-            let new_window_start = Dhaka
-                .from_local_datetime(&NaiveDateTime::new(today, final_start))
-                .single()
-                .ok_or_else(|| {
-                    AppError::internal(
-                        error_codes::DATABASE_ERROR,
-                        "Failed to compute proposed business day start time",
-                    )
-                })?
-                .with_timezone(&Utc);
-
-            let end_date = if final_end < final_start {
-                today.succ_opt().ok_or_else(|| {
-                    AppError::internal(
-                        error_codes::DATABASE_ERROR,
-                        "Failed to compute next business day for conflict check",
-                    )
-                })?
-            } else {
-                today
-            };
-            let new_window_end = Dhaka
-                .from_local_datetime(&NaiveDateTime::new(end_date, final_end))
-                .single()
-                .ok_or_else(|| {
-                    AppError::internal(
-                        error_codes::DATABASE_ERROR,
-                        "Failed to compute proposed business day end time",
-                    )
-                })?
-                .with_timezone(&Utc);
-
             let orphaned_count = SlotRepository::count_active_slots_outside_window_tx(
                 &mut *tx,
                 game_id,
-                new_window_start,
-                new_window_end,
+                final_start,
+                final_end,
             )
             .await?;
 
             if orphaned_count > 0 {
-                return Err(AppError::conflict(error_codes::GAME_WINDOW_CONFLICT, "Cannot narrow the game window: active (Booked or Pending) slots exist outside the proposed operating hours"));
+                return Err(AppError::conflict(
+                    error_codes::GAME_WINDOW_CONFLICT,
+                    "Cannot narrow the game window: active (Booked or Pending) slots exist outside the proposed operating hours",
+                ));
             }
         }
 

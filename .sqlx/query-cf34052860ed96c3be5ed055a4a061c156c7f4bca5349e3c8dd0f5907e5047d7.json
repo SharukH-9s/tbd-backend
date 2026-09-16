@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)\n             FROM slots\n             WHERE game_id = $1\n               AND status IN ('Booked', 'Pending')\n               AND end_time > NOW()\n               AND (\n                 CASE \n                   WHEN ($2::time < $3::time) THEN \n                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time OR (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)\n                   ELSE \n                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)\n                 END\n               )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Time",
+        "Time"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cf34052860ed96c3be5ed055a4a061c156c7f4bca5349e3c8dd0f5907e5047d7"
+}

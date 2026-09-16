@@ -3,7 +3,7 @@ use crate::config::state::SharedState;
 use crate::domain::errors::AppError;
 use crate::domain::models::slots::{Slot, SlotStatus};
 use bigdecimal::BigDecimal;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveTime, Utc};
 
 pub struct SlotRepository;
 
@@ -142,25 +142,34 @@ impl SlotRepository {
     ///
     /// Used by GameService::update_game to reject time-window changes that would orphan
     /// existing active bookings. A slot is "outside" if its start_time is before the new
-    /// opening time OR at/after the new closing time.
+    /// Counts active (Booked or Pending) upcoming slots that fall outside the proposed operating window.
+    /// Supports both standard daytime hours ($2 < $3) and overnight hours crossing midnight ($2 >= $3).
     ///
     /// Runs inside a transaction so the count is consistent with the subsequent UPDATE.
     pub async fn count_active_slots_outside_window_tx(
         executor: &mut sqlx::PgConnection,
         game_id: i32,
-        new_window_start: DateTime<Utc>,
-        new_window_end: DateTime<Utc>,
+        new_start: NaiveTime,
+        new_end: NaiveTime,
     ) -> Result<i64, AppError> {
         // query_scalar! replaces the (i64,) tuple pattern, returning the COUNT directly.
         sqlx::query_scalar!(
-            "SELECT COUNT(*)
+            r#"SELECT COUNT(*)
              FROM slots
              WHERE game_id = $1
                AND status IN ('Booked', 'Pending')
-               AND (start_time < $2 OR start_time >= $3)",
+               AND end_time > NOW()
+               AND (
+                 CASE 
+                   WHEN ($2::time < $3::time) THEN 
+                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time OR (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)
+                   ELSE 
+                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)
+                 END
+               )"#,
             game_id,
-            new_window_start,
-            new_window_end,
+            new_start,
+            new_end,
         )
         .fetch_one(executor)
         .await
