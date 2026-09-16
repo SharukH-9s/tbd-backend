@@ -276,7 +276,7 @@ impl GameService {
             if orphaned_count > 0 {
                 return Err(AppError::conflict(
                     error_codes::GAME_WINDOW_CONFLICT,
-                    "Cannot narrow the game window: active (Booked or Pending) slots exist outside the proposed operating hours",
+                    "Cannot narrow the game window: slots exist outside the proposed operating hours",
                 ));
             }
         }

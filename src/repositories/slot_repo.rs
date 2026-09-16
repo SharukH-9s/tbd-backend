@@ -142,7 +142,7 @@ impl SlotRepository {
     ///
     /// Used by GameService::update_game to reject time-window changes that would orphan
     /// existing active bookings. A slot is "outside" if its start_time is before the new
-    /// Counts active (Booked or Pending) upcoming slots that fall outside the proposed operating window.
+    /// Counts upcoming slots (Available, Booked, or Pending) that fall outside the proposed operating window.
     /// Supports both standard daytime hours ($2 < $3) and overnight hours crossing midnight ($2 >= $3).
     ///
     /// Runs inside a transaction so the count is consistent with the subsequent UPDATE.
@@ -157,14 +157,16 @@ impl SlotRepository {
             r#"SELECT COUNT(*)
              FROM slots
              WHERE game_id = $1
-               AND status IN ('Booked', 'Pending')
                AND end_time > NOW()
                AND (
                  CASE 
                    WHEN ($2::time < $3::time) THEN 
-                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time OR (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)
+                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time 
+                      OR (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time
+                      OR (end_time AT TIME ZONE 'Asia/Dhaka')::time < (start_time AT TIME ZONE 'Asia/Dhaka')::time)
                    ELSE 
-                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time)
+                     (((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (start_time AT TIME ZONE 'Asia/Dhaka')::time >= $3::time)
+                      OR ((end_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time))
                  END
                )"#,
             game_id,
@@ -174,7 +176,7 @@ impl SlotRepository {
         .fetch_one(executor)
         .await
         .map(|n| n.unwrap_or(0))
-        .map_err(db_err!("Failed to check for orphaned active slots"))
+        .map_err(db_err!("Failed to check for orphaned slots"))
     }
 
     /// Counts all active (Booked or Pending) slots for a game.
