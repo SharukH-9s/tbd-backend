@@ -157,7 +157,7 @@ impl SlotRepository {
             r#"SELECT COUNT(*)
              FROM slots
              WHERE game_id = $1
-               AND end_time > NOW()
+               AND (end_time AT TIME ZONE 'Asia/Dhaka')::date >= (NOW() AT TIME ZONE 'Asia/Dhaka')::date
                AND (
                  CASE 
                    WHEN ($2::time < $3::time) THEN 

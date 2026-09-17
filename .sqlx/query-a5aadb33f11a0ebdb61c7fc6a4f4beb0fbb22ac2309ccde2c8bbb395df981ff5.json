@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*)\n             FROM slots\n             WHERE game_id = $1\n               AND (end_time AT TIME ZONE 'Asia/Dhaka')::date >= (NOW() AT TIME ZONE 'Asia/Dhaka')::date\n               AND (\n                 CASE \n                   WHEN ($2::time < $3::time) THEN \n                     ((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time \n                      OR (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time\n                      OR (end_time AT TIME ZONE 'Asia/Dhaka')::time < (start_time AT TIME ZONE 'Asia/Dhaka')::time)\n                   ELSE \n                     (((start_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (start_time AT TIME ZONE 'Asia/Dhaka')::time >= $3::time)\n                      OR ((end_time AT TIME ZONE 'Asia/Dhaka')::time < $2::time AND (end_time AT TIME ZONE 'Asia/Dhaka')::time > $3::time))\n                 END\n               )",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Time",
+        "Time"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a5aadb33f11a0ebdb61c7fc6a4f4beb0fbb22ac2309ccde2c8bbb395df981ff5"
+}
