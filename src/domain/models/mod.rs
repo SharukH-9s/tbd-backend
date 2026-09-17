@@ -3,3 +3,4 @@ pub mod slots;
 pub mod turfs;
 pub mod users;
 pub mod bookings;
+pub mod turf_photos;

@@ -73,6 +73,13 @@ pub mod error_codes {
     pub const BOOKING_NOT_FOUND: &str = "BOOKING_NOT_FOUND";
     pub const ALREADY_SETTLED: &str = "ALREADY_SETTLED"; // booking is not Partially_Paid — cannot settle
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
+
+    // Photo specific
+    pub const PHOTO_NOT_FOUND: &str = "PHOTO_NOT_FOUND";
+    pub const PHOTO_LIMIT_EXCEEDED: &str = "PHOTO_LIMIT_EXCEEDED";
+    pub const PHOTO_TOO_LARGE: &str = "PHOTO_TOO_LARGE";
+    pub const INVALID_PHOTO_FORMAT: &str = "INVALID_PHOTO_FORMAT";
+    pub const NO_PHOTOS_PROVIDED: &str = "NO_PHOTOS_PROVIDED";
 }
 
 // In any error case, we will create an AppError object. As AppError has Intoresponse implemnted on it, that object will be transformed into a response by axum

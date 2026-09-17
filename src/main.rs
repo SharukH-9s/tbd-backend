@@ -321,6 +321,10 @@ async fn main() {
             "/games/{id}/slots",
             axum::routing::get(api::handlers::slot_handlers::get_slots::get_slots_handler),
         )
+        .route(
+            "/turfs/{id}/photos",
+            axum::routing::get(api::handlers::turf_photo_handlers::get_photos::get_photos_handler),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rbac::require_auth,
@@ -417,6 +421,14 @@ async fn main() {
                 api::handlers::booking_handlers::update_payment::update_payment_handler,
             ),
         )
+        .route(
+            "/turfs/{id}/photos",
+            axum::routing::post(api::handlers::turf_photo_handlers::upload_photos::upload_photos_handler),
+        )
+        .route(
+            "/turfs/{id}/photos/{photo_id}",
+            axum::routing::delete(api::handlers::turf_photo_handlers::delete_photo::delete_photo_handler),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rbac::require_manager_or_admin,
@@ -456,6 +468,10 @@ async fn main() {
         .route("/health", get(api::utils::tester::health_check))
         .route("/ping", get(api::utils::tester::ping))
         .route("/test-amqp", get(api::utils::tester::test_amqp))
+        .route(
+            "/turfs/photos/{id}/raw",
+            get(api::handlers::turf_photo_handlers::get_photo_raw::get_photo_raw_handler),
+        )
         // Prometheus scrape endpoint — guarded by an optional bearer token.
         // Set METRICS_BEARER_TOKEN in .env to enable auth; leave unset for open local access.
         .route(
