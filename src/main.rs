@@ -312,6 +312,12 @@ async fn main() {
             ),
         )
         .route(
+            "/games/{id}/settings",
+            axum::routing::get(
+                api::handlers::game_settings_handlers::get_settings::get_settings_handler,
+            ),
+        )
+        .route(
             "/games/{id}/slots",
             axum::routing::get(api::handlers::slot_handlers::get_slots::get_slots_handler),
         )
@@ -377,9 +383,6 @@ async fn main() {
             "/games/{id}/settings",
             axum::routing::post(
                 api::handlers::game_settings_handlers::create_settings::create_settings_handler,
-            )
-            .get(
-                api::handlers::game_settings_handlers::get_settings::get_settings_handler,
             ),
         )
         .route(
