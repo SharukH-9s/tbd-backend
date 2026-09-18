@@ -56,7 +56,7 @@ pub async fn upload_photos_handler(
     }
 
     if category.is_empty() {
-        category = "Washroom and Changing".to_string();
+        category = "Facility Photos".to_string();
     }
 
     let uploaded = TurfPhotoService::upload_photos(
