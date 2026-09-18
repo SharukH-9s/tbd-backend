@@ -73,6 +73,7 @@ pub mod error_codes {
     pub const BOOKING_NOT_FOUND: &str = "BOOKING_NOT_FOUND";
     pub const BOOKING_NOT_CONFIRMED: &str = "BOOKING_NOT_CONFIRMED"; // slot is not Booked — cannot settle
     pub const ALREADY_SETTLED: &str = "ALREADY_SETTLED"; // booking is not Partially_Paid — cannot settle
+    pub const PAYMENT_NOT_ALLOWED: &str = "PAYMENT_NOT_ALLOWED"; // slot is not Pending or booking is not Unpaid
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
 
     // Photo specific

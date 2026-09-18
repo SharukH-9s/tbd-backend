@@ -295,9 +295,15 @@ impl BookingService {
         Ok(())
     }
 
-    /// Mock Payment Webhook — Advance 30%
-    /// Sets booking to 'Partially_Paid' and locks slot as 'Booked'.
     /// Internal helper for mock gateway payments (advance or full).
+    ///
+    /// Steps:
+    ///   1. Fetch slot → guard: must be 'Pending'
+    ///   2. Fetch booking → guard: must be 'Unpaid'
+    ///   3. Update booking payment status
+    ///   4. Mark slot as 'Booked'
+    ///   5. Write outbox event (email confirmation)
+    ///   6. Commit
     async fn process_gateway_payment(
         state: &SharedState,
         slot_id: i32,
@@ -311,7 +317,44 @@ impl BookingService {
             )
         })?;
 
-        // 1. Mark booking as paid
+        // ── 1. Fetch the slot and validate it is still Pending ────────────────
+        let slot = match SlotRepository::find_by_id_tx(&mut *tx, slot_id).await? {
+            Some(s) => s,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::SLOT_NOT_FOUND,
+                    "Slot not found",
+                ))
+            }
+        };
+
+        if slot.status != SlotStatus::Pending {
+            return Err(AppError::conflict(
+                error_codes::PAYMENT_NOT_ALLOWED,
+                "Your reservation has already been confirmed or is no longer active. Payment cannot be processed.",
+            ));
+        }
+
+        // ── 2. Fetch the booking and validate it is still Unpaid ──────────────
+        let booking = match BookingRepository::find_by_slot_and_user_tx(&mut *tx, slot_id, user_id).await? {
+            Some(b) => b,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::BOOKING_NOT_FOUND,
+                    "No pending booking found for this slot",
+                ))
+            }
+        };
+
+        if booking.payment_status != PaymentStatus::Unpaid {
+            return Err(AppError::conflict(
+                error_codes::PAYMENT_NOT_ALLOWED,
+                "This booking has already been paid. Payment cannot be processed again.",
+            ));
+        }
+
+        // ── 3. Mark booking as paid ───────────────────────────────────────────
+
         let updated_booking = BookingRepository::update_payment_status_tx(
             &mut *tx,
             payment_status,
@@ -321,10 +364,10 @@ impl BookingService {
         )
         .await?;
 
-        // 2. Mark slot as Booked
+        // 4. Mark slot as Booked
         SlotRepository::mark_booked_tx(&mut *tx, slot_id).await?;
 
-        // 3. Write outbox event — atomic with the payment update above.
+        // 5. Write outbox event — atomic with the payment update above.
         //    Fetch user email and slot start_time in a single JOIN query while still in tx.
         let event_row = sqlx::query!(
             r#"
@@ -392,7 +435,7 @@ impl BookingService {
             })?;
         }
 
-        // 4. Commit — booking payment, slot status, and outbox row all land together.
+        // 6. Commit — booking payment, slot status, and outbox row all land together.
         tx.commit().await.map_err(|_| {
             AppError::internal(
                 error_codes::TRANSACTION_COMMIT_FAILED,

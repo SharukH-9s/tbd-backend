@@ -95,6 +95,25 @@ impl BookingRepository {
         .map_err(db_err!("Failed to fetch booking from database"))
     }
 
+    /// Fetches a single booking by slot_id and user_id inside a transaction.
+    /// Used by the payment gateway flow to validate state before processing payment.
+    pub async fn find_by_slot_and_user_tx(
+        executor: &mut sqlx::PgConnection,
+        slot_id: i32,
+        user_id: i32,
+    ) -> Result<Option<Booking>, AppError> {
+        sqlx::query_as!(
+            Booking,
+            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time
+             FROM bookings WHERE slot_id = $1 AND user_id = $2",
+            slot_id,
+            user_id,
+        )
+        .fetch_optional(executor)
+        .await
+        .map_err(db_err!("Failed to fetch booking from database"))
+    }
+
     // ---------------------------------------------------------------------------
     // Pattern 3: update_payment_status_tx refactoring
     //
@@ -168,7 +187,14 @@ impl BookingRepository {
         executor: &mut sqlx::PgConnection,
         booking_id: i32,
     ) -> Result<Booking, AppError> {
-        Self::update_payment_status_tx(executor, PaymentStatus::FullyPaid, Some(booking_id), None, None).await
+        Self::update_payment_status_tx(
+            executor,
+            PaymentStatus::FullyPaid,
+            Some(booking_id),
+            None,
+            None,
+        )
+        .await
     }
 
     // ---------------------------------------------------------------------------
