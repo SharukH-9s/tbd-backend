@@ -472,6 +472,10 @@ async fn main() {
             "/turfs/photos/{id}/raw",
             get(api::handlers::turf_photo_handlers::get_photo_raw::get_photo_raw_handler),
         )
+        .route(
+            "/api/v1/turfs/photos/{id}/raw",
+            get(api::handlers::turf_photo_handlers::get_photo_raw::get_photo_raw_handler),
+        )
         // Prometheus scrape endpoint — guarded by an optional bearer token.
         // Set METRICS_BEARER_TOKEN in .env to enable auth; leave unset for open local access.
         .route(
