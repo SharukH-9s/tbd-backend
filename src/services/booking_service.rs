@@ -1,6 +1,7 @@
 use crate::config::state::SharedState;
 use crate::domain::errors::{error_codes, AppError};
 use crate::domain::models::bookings::{Booking, PaymentStatus};
+use crate::domain::models::slots::SlotStatus;
 use crate::repositories::booking_repo::BookingRepository;
 use crate::repositories::slot_repo::SlotRepository;
 use crate::repositories::user_repo::UserRepository;
@@ -82,9 +83,10 @@ impl BookingService {
     /// Steps:
     ///   1. Fetch booking → 404 if not found
     ///   2. Fetch slot → game → turf → verify caller is manager or Admin
-    ///   3. Guard: booking must not be 'Fully_Paid' already → 400 ALREADY_SETTLED if not
-    ///   4. Mark booking as 'Fully_Paid'
-    ///   5. Commit
+    ///   3. Guard: slot must be 'Booked' (confirmed) → 400 BOOKING_NOT_CONFIRMED if not
+    ///   4. Guard: booking must not be 'Fully_Paid' already → 400 ALREADY_SETTLED if not
+    ///   5. Mark booking as 'Fully_Paid'
+    ///   6. Commit
     #[tracing::instrument(
         skip(state),
         fields(booking_id, caller_id),
@@ -158,7 +160,16 @@ impl BookingService {
             ));
         }
 
-        // ── 3. Guard: cannot mark an already settled booking ─────────────────
+        // ── 3. Guards ────────────────────────────────────────────────────────
+        // Cannot settle a booking whose slot is still pending or not confirmed
+        if slot.status != SlotStatus::Booked {
+            return Err(AppError::bad_request(
+                error_codes::BOOKING_NOT_CONFIRMED,
+                "Cannot settle payment for a booking that is still pending or not confirmed",
+            ));
+        }
+
+        // Cannot mark an already settled booking
         if booking.payment_status == PaymentStatus::FullyPaid {
             return Err(AppError::bad_request(
                 error_codes::ALREADY_SETTLED,

@@ -71,6 +71,7 @@ pub mod error_codes {
     pub const SLOT_UNAVAILABLE: &str = "SLOT_UNAVAILABLE"; // slot is Pending or Booked — cannot be booked
     pub const TOO_MANY_PENDING_BOOKINGS: &str = "TOO_MANY_PENDING_BOOKINGS"; // user already holds 2 pending slots
     pub const BOOKING_NOT_FOUND: &str = "BOOKING_NOT_FOUND";
+    pub const BOOKING_NOT_CONFIRMED: &str = "BOOKING_NOT_CONFIRMED"; // slot is not Booked — cannot settle
     pub const ALREADY_SETTLED: &str = "ALREADY_SETTLED"; // booking is not Partially_Paid — cannot settle
     pub const INTERNAL_ERROR: &str = "INTERNAL_ERROR";
 
