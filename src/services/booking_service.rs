@@ -392,71 +392,58 @@ impl BookingService {
             }
         };
 
-        //    Fetch user email and slot start_time in a single JOIN query while still in tx.
-        let event_row = sqlx::query!(
-            r#"
-            SELECT u.email           AS user_email,
-                   s.start_time::TEXT AS "slot_start!: String"
-            FROM   users u
-            JOIN   slots s ON s.id = $1
-            WHERE  u.id = $2
-            "#,
-            slot_id,
-            user_id,
+        //    Fetch user email for outbox event
+        let user = match UserRepository::find_by_id_tx(&mut *tx, user_id).await? {
+            Some(u) => u,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::USER_NOT_FOUND,
+                    "User profile not found",
+                ))
+            }
+        };
+
+        // Insert first to get the Postgres-generated UUID, then use it as outbox_id
+        // inside the payload so the worker's idempotency key (processed_jobs.outbox_id)
+        // ties back to the correct outbox row.
+        let outbox_id = sqlx::query_scalar!(
+            "INSERT INTO outbox (event_type, payload)
+                 VALUES ('BookingCreated', '{}'::jsonb)
+                 RETURNING id",
         )
-        .fetch_optional(&mut *tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, "Failed to fetch user/slot data for outbox event");
+            tracing::error!(error = %e, "Failed to insert outbox row");
             AppError::internal(
                 error_codes::INTERNAL_ERROR,
-                "Failed to prepare booking confirmation event",
+                "Failed to queue booking confirmation event",
             )
         })?;
 
-        if let Some(ev) = event_row {
-            // Insert first to get the Postgres-generated UUID, then use it as outbox_id
-            // inside the payload so the worker's idempotency key (processed_jobs.outbox_id)
-            // ties back to the correct outbox row.
-            let outbox_id = sqlx::query_scalar!(
-                "INSERT INTO outbox (event_type, payload)
-                 VALUES ('BookingCreated', '{}'::jsonb)
-                 RETURNING id",
-            )
-            .fetch_one(&mut *tx)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to insert outbox row");
-                AppError::internal(
-                    error_codes::INTERNAL_ERROR,
-                    "Failed to queue booking confirmation event",
-                )
-            })?;
+        let payload = serde_json::json!({
+            "outbox_id":    outbox_id,
+            "booking_id":   updated_booking.id,
+            "user_email":   user.email,
+            "contact_name": updated_booking.contact_name,
+            "slot_start":   slot.start_time.to_rfc3339(),
+            "amount":       event_amount.to_string(),
+        });
 
-            let payload = serde_json::json!({
-                "outbox_id":    outbox_id,
-                "booking_id":   updated_booking.id,
-                "user_email":   ev.user_email,
-                "contact_name": updated_booking.contact_name,
-                "slot_start":   ev.slot_start,
-                "amount":       event_amount.to_string(),
-            });
-
-            sqlx::query!(
-                "UPDATE outbox SET payload = $1 WHERE id = $2",
-                payload,
-                outbox_id,
+        sqlx::query!(
+            "UPDATE outbox SET payload = $1 WHERE id = $2",
+            payload,
+            outbox_id,
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to update outbox payload");
+            AppError::internal(
+                error_codes::INTERNAL_ERROR,
+                "Failed to finalize booking confirmation event",
             )
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| {
-                tracing::error!(error = %e, "Failed to update outbox payload");
-                AppError::internal(
-                    error_codes::INTERNAL_ERROR,
-                    "Failed to finalize booking confirmation event",
-                )
-            })?;
-        }
+        })?;
 
         // 6. Commit — booking payment, slot status, and outbox row all land together.
         tx.commit().await.map_err(|_| {
