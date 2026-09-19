@@ -41,16 +41,18 @@ impl BookingRepository {
         user_id: i32,
         contact_name: &str,
         contact_phone: &str,
+        total_price: &BigDecimal,
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
-            "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
-             VALUES ($1, $2, $3, $4, 'Unpaid')
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+            "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status, total_price, paid_amount, unpaid_amount)
+             VALUES ($1, $2, $3, $4, 'Unpaid', $5, 0, $5)
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
             slot_id,
             user_id,
             contact_name,
             contact_phone,
+            total_price,
         )
         .fetch_one(executor)
         .await
@@ -64,15 +66,17 @@ impl BookingRepository {
         slot_id: i32,
         contact_name: &str,
         contact_phone: &str,
+        total_price: &BigDecimal,
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
-            "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status)
-             VALUES ($1, NULL, $2, $3, 'Fully_Paid')
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+            "INSERT INTO bookings (slot_id, user_id, contact_name, contact_phone, payment_status, total_price, paid_amount, unpaid_amount)
+             VALUES ($1, NULL, $2, $3, 'Fully_Paid', $4, $4, 0)
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
             slot_id,
             contact_name,
             contact_phone,
+            total_price,
         )
         .fetch_one(executor)
         .await
@@ -86,7 +90,7 @@ impl BookingRepository {
     ) -> Result<Option<Booking>, AppError> {
         sqlx::query_as!(
             Booking,
-            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time
+            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time
              FROM bookings WHERE id = $1",
             booking_id,
         )
@@ -104,7 +108,7 @@ impl BookingRepository {
     ) -> Result<Option<Booking>, AppError> {
         sqlx::query_as!(
             Booking,
-            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time
+            "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time
              FROM bookings WHERE slot_id = $1 AND user_id = $2",
             slot_id,
             user_id,
@@ -123,7 +127,7 @@ impl BookingRepository {
     // method preserved as a thin dispatcher.
     // ---------------------------------------------------------------------------
 
-    /// Updates payment_status for a booking by its own ID.
+    /// Updates payment_status for a booking by its own ID and marks as fully paid.
     async fn update_by_booking_id_tx(
         executor: &mut sqlx::PgConnection,
         status: PaymentStatus,
@@ -131,8 +135,12 @@ impl BookingRepository {
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
-            "UPDATE bookings SET payment_status = $1 WHERE id = $2
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+            "UPDATE bookings
+             SET payment_status = $1,
+                 paid_amount = total_price,
+                 unpaid_amount = 0
+             WHERE id = $2
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
             status as PaymentStatus,
             booking_id,
         )
@@ -151,7 +159,7 @@ impl BookingRepository {
         sqlx::query_as!(
             Booking,
             "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3
-             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
             status as PaymentStatus,
             slot_id,
             user_id,
@@ -159,6 +167,28 @@ impl BookingRepository {
         .fetch_one(executor)
         .await
         .map_err(db_err!("Failed to update payment status"))
+    }
+
+    /// Records advance payment (30%) for a booking identified by (slot_id, user_id).
+    pub async fn mark_partially_paid_tx(
+        executor: &mut sqlx::PgConnection,
+        slot_id: i32,
+        user_id: i32,
+    ) -> Result<Booking, AppError> {
+        sqlx::query_as!(
+            Booking,
+            "UPDATE bookings
+             SET payment_status = 'Partially_Paid',
+                 paid_amount = total_price * 30 / 100,
+                 unpaid_amount = total_price * 70 / 100
+             WHERE slot_id = $1 AND user_id = $2
+             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
+            slot_id,
+            user_id,
+        )
+        .fetch_one(executor)
+        .await
+        .map_err(db_err!("Failed to record advance payment"))
     }
 
     /// Updates payment_status for a booking inside a transaction.
@@ -222,8 +252,9 @@ impl BookingRepository {
             // infer Option<String> regardless of the underlying column constraint.
             "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
                     b.contact_name, b.contact_phone,
+                    b.total_price, b.paid_amount, b.unpaid_amount,
                     t.name as turf_name, g.name as game_name,
-                    s.final_price, s.start_time, s.end_time,
+                    s.start_time, s.end_time,
                     u.username as \"username?\", u.phone as \"phone?\"
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
@@ -241,19 +272,6 @@ impl BookingRepository {
         let booking_details: Vec<BookingDetail> = rows
             .into_iter()
             .map(|row| {
-                let total_price: BigDecimal = row.final_price;
-                let payment_status: PaymentStatus = row.payment_status;
-
-                let (advance_paid, due_amount) = match payment_status {
-                    PaymentStatus::Unpaid => (BigDecimal::from(0), total_price.clone()),
-                    PaymentStatus::PartiallyPaid => {
-                        let advance = &total_price * BigDecimal::from(30) / BigDecimal::from(100);
-                        let due = &total_price * BigDecimal::from(70) / BigDecimal::from(100);
-                        (advance, due)
-                    }
-                    PaymentStatus::FullyPaid => (total_price.clone(), BigDecimal::from(0)),
-                };
-
                 // Prefer the joined user profile; fall back to the contact fields stored at
                 // booking time for offline/unauthenticated bookings.
                 let user_name = row.username.or(row.contact_name);
@@ -266,10 +284,10 @@ impl BookingRepository {
                     user_phone,
                     turf_name: row.turf_name,
                     game_name: row.game_name,
-                    total_price,
-                    advance_paid,
-                    due_amount,
-                    payment_status,
+                    total_price: row.total_price,
+                    advance_paid: row.paid_amount,
+                    due_amount: row.unpaid_amount,
+                    payment_status: row.payment_status,
                     booking_time: row.booking_time,
                     start_time: row.start_time,
                     end_time: row.end_time,
@@ -294,8 +312,9 @@ impl BookingRepository {
         let rows = sqlx::query!(
             "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
                     b.contact_name, b.contact_phone,
+                    b.total_price, b.paid_amount, b.unpaid_amount,
                     t.name as turf_name, g.name as game_name,
-                    s.final_price, s.start_time, s.end_time,
+                    s.start_time, s.end_time,
                     u.username as \"username?\", u.phone as \"phone?\"
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
@@ -313,19 +332,6 @@ impl BookingRepository {
         let booking_details: Vec<BookingDetail> = rows
             .into_iter()
             .map(|row| {
-                let total_price: BigDecimal = row.final_price;
-                let payment_status: PaymentStatus = row.payment_status;
-
-                let (advance_paid, due_amount) = match payment_status {
-                    PaymentStatus::Unpaid => (BigDecimal::from(0), total_price.clone()),
-                    PaymentStatus::PartiallyPaid => {
-                        let advance = &total_price * BigDecimal::from(30) / BigDecimal::from(100);
-                        let due = &total_price * BigDecimal::from(70) / BigDecimal::from(100);
-                        (advance, due)
-                    }
-                    PaymentStatus::FullyPaid => (total_price.clone(), BigDecimal::from(0)),
-                };
-
                 let user_name = row.username.or(row.contact_name);
                 let user_phone = row.phone.or(row.contact_phone);
 
@@ -336,10 +342,10 @@ impl BookingRepository {
                     user_phone,
                     turf_name: row.turf_name,
                     game_name: row.game_name,
-                    total_price,
-                    advance_paid,
-                    due_amount,
-                    payment_status,
+                    total_price: row.total_price,
+                    advance_paid: row.paid_amount,
+                    due_amount: row.unpaid_amount,
+                    payment_status: row.payment_status,
                     booking_time: row.booking_time,
                     start_time: row.start_time,
                     end_time: row.end_time,

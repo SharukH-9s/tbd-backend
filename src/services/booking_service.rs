@@ -52,20 +52,26 @@ impl BookingService {
         // ── 3. Atomically lock the slot as Pending ──────────────────────────────────
         // If the slot is already Pending or Booked, the WHERE clause won't match
         // and fetch_optional returns None — we never get a chance to double-book.
-        let locked_slot = SlotRepository::lock_as_pending_tx(&mut *tx, slot_id).await?;
-
-        // ── 4. Guard: slot not available ───────────────────────────────────────────
-        if locked_slot.is_none() {
-            return Err(AppError::conflict(
-                error_codes::SLOT_UNAVAILABLE,
-                "This slot is no longer available. It may have just been booked by someone else.",
-            ));
-        }
+        let locked_slot = match SlotRepository::lock_as_pending_tx(&mut *tx, slot_id).await? {
+            Some(s) => s,
+            None => {
+                return Err(AppError::conflict(
+                    error_codes::SLOT_UNAVAILABLE,
+                    "This slot is no longer available. It may have just been booked by someone else.",
+                ));
+            }
+        };
 
         // ── 5. Insert the booking record ─────────────────────────────────────────
-        let booking =
-            BookingRepository::insert_tx(&mut *tx, slot_id, caller_id, &user.username, &user.phone)
-                .await?;
+        let booking = BookingRepository::insert_tx(
+            &mut *tx,
+            slot_id,
+            caller_id,
+            &user.username,
+            &user.phone,
+            &locked_slot.final_price,
+        )
+        .await?;
 
         // ── 6. Commit ───────────────────────────────────────────────────────────
         tx.commit().await.map_err(|_| {
@@ -354,26 +360,42 @@ impl BookingService {
         }
 
         // ── 3. Mark booking as paid ───────────────────────────────────────────
-
-        let updated_booking = BookingRepository::update_payment_status_tx(
-            &mut *tx,
-            payment_status,
-            None,
-            Some(slot_id),
-            Some(user_id),
-        )
-        .await?;
+        let updated_booking = match payment_status {
+            PaymentStatus::PartiallyPaid => {
+                BookingRepository::mark_partially_paid_tx(&mut *tx, slot_id, user_id).await?
+            }
+            PaymentStatus::FullyPaid => {
+                BookingRepository::update_payment_status_tx(
+                    &mut *tx,
+                    PaymentStatus::FullyPaid,
+                    None,
+                    Some(slot_id),
+                    Some(user_id),
+                )
+                .await?
+            }
+            PaymentStatus::Unpaid => {
+                unreachable!("process_gateway_payment is never called with Unpaid")
+            }
+        };
 
         // 4. Mark slot as Booked
         SlotRepository::mark_booked_tx(&mut *tx, slot_id).await?;
 
         // 5. Write outbox event — atomic with the payment update above.
+        let event_amount = match payment_status {
+            PaymentStatus::PartiallyPaid => updated_booking.paid_amount.clone(),
+            PaymentStatus::FullyPaid => slot.final_price.clone(),
+            PaymentStatus::Unpaid => {
+                unreachable!("process_gateway_payment is never called with Unpaid")
+            }
+        };
+
         //    Fetch user email and slot start_time in a single JOIN query while still in tx.
         let event_row = sqlx::query!(
             r#"
             SELECT u.email           AS user_email,
-                   s.start_time::TEXT AS "slot_start!: String",
-                   s.final_price::TEXT AS "amount!: String"
+                   s.start_time::TEXT AS "slot_start!: String"
             FROM   users u
             JOIN   slots s ON s.id = $1
             WHERE  u.id = $2
@@ -416,7 +438,7 @@ impl BookingService {
                 "user_email":   ev.user_email,
                 "contact_name": updated_booking.contact_name,
                 "slot_start":   ev.slot_start,
-                "amount":       ev.amount,
+                "amount":       event_amount.to_string(),
             });
 
             sqlx::query!(

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,\n                    b.contact_name, b.contact_phone,\n                    t.name as turf_name, g.name as game_name,\n                    s.final_price, s.start_time, s.end_time,\n                    u.username as \"username?\", u.phone as \"phone?\"\n             FROM bookings b\n             JOIN slots s ON b.slot_id = s.id\n             JOIN games g ON s.game_id = g.id\n             JOIN turfs t ON g.turf_id = t.id\n             LEFT JOIN users u ON b.user_id = u.id\n             WHERE g.id = $1\n             ORDER BY b.booking_time DESC",
+  "query": "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,\n                    b.contact_name, b.contact_phone,\n                    b.total_price, b.paid_amount, b.unpaid_amount,\n                    t.name as turf_name, g.name as game_name,\n                    s.start_time, s.end_time,\n                    u.username as \"username?\", u.phone as \"phone?\"\n             FROM bookings b\n             JOIN slots s ON b.slot_id = s.id\n             JOIN games g ON s.game_id = g.id\n             JOIN turfs t ON g.turf_id = t.id\n             LEFT JOIN users u ON b.user_id = u.id\n             WHERE b.user_id = $1\n             ORDER BY b.booking_time DESC",
   "describe": {
     "columns": [
       {
@@ -35,36 +35,46 @@
       },
       {
         "ordinal": 6,
-        "name": "turf_name",
-        "type_info": "Text"
+        "name": "total_price",
+        "type_info": "Numeric"
       },
       {
         "ordinal": 7,
-        "name": "game_name",
-        "type_info": "Text"
+        "name": "paid_amount",
+        "type_info": "Numeric"
       },
       {
         "ordinal": 8,
-        "name": "final_price",
+        "name": "unpaid_amount",
         "type_info": "Numeric"
       },
       {
         "ordinal": 9,
+        "name": "turf_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "game_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
         "name": "start_time",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 10,
+        "ordinal": 12,
         "name": "end_time",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 11,
+        "ordinal": 13,
         "name": "username?",
         "type_info": "Text"
       },
       {
-        "ordinal": 12,
+        "ordinal": 14,
         "name": "phone?",
         "type_info": "Text"
       }
@@ -87,8 +97,10 @@
       false,
       false,
       false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "67eba606c3d7cc35ac4eff8dcc827d9e8df85cb5a5b82628db49fa1367b4b1a9"
+  "hash": "78907e28f3526c597f161dd0cbd4dbba3dcf4c45539cd14e00a29b0f80b20403"
 }

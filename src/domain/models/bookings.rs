@@ -1,3 +1,4 @@
+use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -28,5 +29,8 @@ pub struct Booking {
     pub contact_name: Option<String>,  // offline only
     pub contact_phone: Option<String>, // offline only
     pub payment_status: PaymentStatus, // 'Unpaid' | 'Partially_Paid' | 'Fully_Paid'
+    pub total_price: BigDecimal,
+    pub paid_amount: BigDecimal,
+    pub unpaid_amount: BigDecimal,
     pub booking_time: DateTime<Utc>,
 }

@@ -1,8 +1,8 @@
-use crate::api::extractors::auth::{ACCESS_TOKEN_LIFETIME_SECS, make_access_token};
+use crate::api::extractors::auth::{make_access_token, ACCESS_TOKEN_LIFETIME_SECS};
 use crate::api::extractors::types::LoginResponse;
 use crate::api::handlers::login::LoginReq;
 use crate::config::state::SharedState;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::{error_codes, AppError};
 use crate::repositories::user_repo::UserRepository;
 use uuid::Uuid;
 
@@ -17,13 +17,28 @@ impl AuthService {
     ) -> Result<(LoginResponse, String), AppError> {
         let user = match UserRepository::find_by_email(database, &payload.email).await? {
             Some(u) => u,
-            None => return Err(AppError::unauthorized(error_codes::INVALID_CREDENTIALS, "Invalid email or password")),
+            None => {
+                return Err(AppError::unauthorized(
+                    error_codes::INVALID_CREDENTIALS,
+                    "Invalid email or password",
+                ))
+            }
         };
 
         match bcrypt::verify(&payload.password, &user.password_hash) {
             Ok(true) => {}
-            Ok(false) => return Err(AppError::unauthorized(error_codes::INVALID_CREDENTIALS, "Invalid email or password")),
-            Err(_) => return Err(AppError::service_unavailable(error_codes::UN_HASH_FAILED, "Couldnt unhash the password!")),
+            Ok(false) => {
+                return Err(AppError::unauthorized(
+                    error_codes::INVALID_CREDENTIALS,
+                    "Invalid email or password",
+                ))
+            }
+            Err(_) => {
+                return Err(AppError::service_unavailable(
+                    error_codes::UN_HASH_FAILED,
+                    "Couldnt unhash the password!",
+                ))
+            }
         };
 
         let user_id = user.id;

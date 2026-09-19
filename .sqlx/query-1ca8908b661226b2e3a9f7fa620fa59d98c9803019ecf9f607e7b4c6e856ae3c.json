@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE bookings SET payment_status = $1 WHERE id = $2\n             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", booking_time",
+  "query": "SELECT id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time\n             FROM bookings WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -35,13 +35,27 @@
       },
       {
         "ordinal": 6,
+        "name": "total_price",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 7,
+        "name": "paid_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 8,
+        "name": "unpaid_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 9,
         "name": "booking_time",
         "type_info": "Timestamptz"
       }
     ],
     "parameters": {
       "Left": [
-        "Text",
         "Int4"
       ]
     },
@@ -52,8 +66,11 @@
       true,
       true,
       false,
+      false,
+      false,
+      false,
       false
     ]
   },
-  "hash": "c41e64362db342fe972e103819b25c8d45dc0d351288cd1aca9f039d9407b8bd"
+  "hash": "1ca8908b661226b2e3a9f7fa620fa59d98c9803019ecf9f607e7b4c6e856ae3c"
 }
