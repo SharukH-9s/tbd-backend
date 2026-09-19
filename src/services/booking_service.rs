@@ -342,15 +342,16 @@ impl BookingService {
         }
 
         // ── 2. Fetch the booking and validate it is still Unpaid ──────────────
-        let booking = match BookingRepository::find_by_slot_and_user_tx(&mut *tx, slot_id, user_id).await? {
-            Some(b) => b,
-            None => {
-                return Err(AppError::not_found(
-                    error_codes::BOOKING_NOT_FOUND,
-                    "No pending booking found for this slot",
-                ))
-            }
-        };
+        let booking =
+            match BookingRepository::find_by_slot_and_user_tx(&mut *tx, slot_id, user_id).await? {
+                Some(b) => b,
+                None => {
+                    return Err(AppError::not_found(
+                        error_codes::BOOKING_NOT_FOUND,
+                        "No pending booking found for this slot",
+                    ))
+                }
+            };
 
         if booking.payment_status != PaymentStatus::Unpaid {
             return Err(AppError::conflict(

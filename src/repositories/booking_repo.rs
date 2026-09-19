@@ -149,7 +149,7 @@ impl BookingRepository {
         .map_err(db_err!("Failed to update payment status"))
     }
 
-    /// Updates payment_status for a booking identified by (slot_id, user_id).
+    /// Updates payment_status for a booking identified by (slot_id, user_id) and marks as fully paid.
     async fn update_by_slot_and_user_tx(
         executor: &mut sqlx::PgConnection,
         status: PaymentStatus,
@@ -158,7 +158,11 @@ impl BookingRepository {
     ) -> Result<Booking, AppError> {
         sqlx::query_as!(
             Booking,
-            "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3
+            "UPDATE bookings
+             SET payment_status = $1,
+                 paid_amount = total_price,
+                 unpaid_amount = 0
+             WHERE slot_id = $2 AND user_id = $3
              RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
             status as PaymentStatus,
             slot_id,

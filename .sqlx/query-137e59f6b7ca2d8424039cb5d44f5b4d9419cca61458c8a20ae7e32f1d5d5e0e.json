@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE bookings SET payment_status = $1 WHERE slot_id = $2 AND user_id = $3\n             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
+  "query": "UPDATE bookings\n             SET payment_status = $1,\n                 paid_amount = total_price,\n                 unpaid_amount = 0\n             WHERE slot_id = $2 AND user_id = $3\n             RETURNING id, slot_id, user_id, contact_name, contact_phone, payment_status as \"payment_status: _\", total_price, paid_amount, unpaid_amount, booking_time",
   "describe": {
     "columns": [
       {
@@ -74,5 +74,5 @@
       false
     ]
   },
-  "hash": "ae1ef399ea859d07ff834580ed2ce7994ae143b27e3293fa4cf24128941416a1"
+  "hash": "137e59f6b7ca2d8424039cb5d44f5b4d9419cca61458c8a20ae7e32f1d5d5e0e"
 }
