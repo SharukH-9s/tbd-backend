@@ -87,10 +87,24 @@ impl TurfPhotoService {
             ));
         }
 
-        // Validate count limit
+        // Validate count limit — "Turf Cover" is capped at exactly 1
         let current_count =
             TurfPhotoRepository::count_by_turf_and_category(state, turf_id, &category).await?;
-        if current_count + (files.len() as i64) > MAX_PHOTOS_PER_CATEGORY {
+
+        if category == "Turf Cover" {
+            if current_count >= 1 {
+                return Err(AppError::bad_request(
+                    error_codes::PHOTO_LIMIT_EXCEEDED,
+                    "Only one cover photo is allowed per turf. Delete the existing cover before uploading a new one.",
+                ));
+            }
+            if files.len() > 1 {
+                return Err(AppError::bad_request(
+                    error_codes::PHOTO_LIMIT_EXCEEDED,
+                    "Only one cover photo can be uploaded at a time.",
+                ));
+            }
+        } else if current_count + (files.len() as i64) > MAX_PHOTOS_PER_CATEGORY {
             return Err(AppError::bad_request(
                 error_codes::PHOTO_LIMIT_EXCEEDED,
                 "Maximum 6 photos allowed per category",
