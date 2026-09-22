@@ -429,6 +429,11 @@ async fn main() {
             "/turfs/{id}/photos/{photo_id}",
             axum::routing::delete(api::handlers::turf_photo_handlers::delete_photo::delete_photo_handler),
         )
+        .route(
+            "/turfs/{id}",
+            axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
+                .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rbac::require_manager_or_admin,
@@ -438,11 +443,6 @@ async fn main() {
         .route(
             "/turfs",
             axum::routing::post(api::handlers::turf_handlers::create_turf::create_turf),
-        )
-        .route(
-            "/turfs/{id}",
-            axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
-                .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
         )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
