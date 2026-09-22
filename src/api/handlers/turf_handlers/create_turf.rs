@@ -34,6 +34,7 @@ pub async fn create_turf(
         payload.manager_email.clone(),
         payload.manager_password.clone(),
         payload.manager_username.clone(),
+        payload.google_maps_url.clone(),
     )
     .await?;
 

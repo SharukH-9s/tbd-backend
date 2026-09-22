@@ -17,6 +17,7 @@ impl TurfRepository {
             Turf,
             "SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
+                    t.google_maps_url, t.latitude, t.longitude,
                     u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
@@ -40,6 +41,7 @@ impl TurfRepository {
             Turf,
             "SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
+                    t.google_maps_url, t.latitude, t.longitude,
                     u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
@@ -70,6 +72,7 @@ impl TurfRepository {
             Turf,
             "SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
+                    t.google_maps_url, t.latitude, t.longitude,
                     u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
@@ -90,6 +93,7 @@ impl TurfRepository {
             Turf,
             "SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
+                    t.google_maps_url, t.latitude, t.longitude,
                     u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
@@ -107,17 +111,23 @@ impl TurfRepository {
         name: &str,        // deref coercion
         location: &str,    // deref coercion
         description: &str, // deref coercion
+        google_maps_url: Option<&str>,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
     ) -> Result<Turf, AppError> {
         use crate::domain::errors::error_codes;
         // First insert the turf and get its ID back via query_scalar!
         let turf_id = sqlx::query_scalar!(
-            "INSERT INTO turfs (manager_id, name, location, description)
-             VALUES ($1, $2, $3, $4)
+            "INSERT INTO turfs (manager_id, name, location, description, google_maps_url, latitude, longitude)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)
              RETURNING id",
             manager_id,
             name,
             location,
             description,
+            google_maps_url,
+            latitude,
+            longitude,
         )
         .fetch_one(&mut *executor)
         .await
@@ -140,15 +150,23 @@ impl TurfRepository {
         location: &str,    // deref coercion
         description: &str, // deref coercion
         manager_id: i32,
+        google_maps_url: Option<&str>,
+        latitude: Option<f64>,
+        longitude: Option<f64>,
     ) -> Result<Turf, AppError> {
         use crate::domain::errors::error_codes;
         sqlx::query!(
-            "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4, updated_at = NOW()
-             WHERE id = $5",
+            "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4,
+                              google_maps_url = $5, latitude = $6, longitude = $7,
+                              updated_at = NOW()
+             WHERE id = $8",
             name,
             location,
             description,
             manager_id,
+            google_maps_url,
+            latitude,
+            longitude,
             turf_id,
         )
         .execute(&mut *executor)

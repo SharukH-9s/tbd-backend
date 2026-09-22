@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE turfs SET name = $1, location = $2, description = $3, manager_id = $4,\n                              google_maps_url = $5, latitude = $6, longitude = $7,\n                              updated_at = NOW()\n             WHERE id = $8",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Float8",
+        "Float8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2669d53a0fff20626b0f6896a2dbdcbc3017c19195d393e6068ab907497adf83"
+}

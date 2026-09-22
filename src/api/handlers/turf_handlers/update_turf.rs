@@ -29,6 +29,7 @@ pub async fn update_turf_handler(
         payload.location,
         payload.description,
         payload.manager_id,
+        payload.google_maps_url,
     )
     .await?;
 
