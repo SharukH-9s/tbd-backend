@@ -258,8 +258,8 @@ struct BookingEnrichedRow {
 
 fn map_enriched_row(
     row: BookingEnrichedRow,
-) -> crate::api::handlers::user_handlers::get_user_bookings::BookingDetail {
-    use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
+) -> crate::domain::models::bookings::BookingDetail {
+    use crate::domain::models::bookings::BookingDetail;
     let user_name = row.username.or(row.contact_name);
     let user_phone = row.phone.or(row.contact_phone);
 
@@ -282,12 +282,15 @@ fn map_enriched_row(
 }
 
 impl BookingRepository {
-    /// Fetches all bookings for a user with turf, game, and price details.
-    pub async fn find_by_user_id_enriched(
+    /// Consolidated enriched bookings query.
+    /// Supports filtering by user_id, game_id, manager_id, or today's schedule.
+    pub async fn find_bookings_enriched(
         state: &crate::config::state::SharedState,
-        user_id: i32,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
+        user_id: Option<i32>,
+        game_id: Option<i32>,
+        manager_id: Option<i32>,
+        today: bool,
+    ) -> Result<Vec<crate::domain::models::bookings::BookingDetail>, AppError> {
         let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
 
         let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
@@ -303,83 +306,22 @@ impl BookingRepository {
              JOIN games g ON s.game_id = g.id
              JOIN turfs t ON g.turf_id = t.id
              LEFT JOIN users u ON b.user_id = u.id
-             WHERE b.user_id = $1
-             ORDER BY b.booking_time DESC"#,
+             WHERE ($1::INT IS NULL OR b.user_id = $1)
+               AND ($2::INT IS NULL OR g.id = $2)
+               AND ($3::INT IS NULL OR t.manager_id = $3)
+               AND ($4::BOOLEAN = false OR DATE(s.start_time AT TIME ZONE 'Asia/Dhaka') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date)
+             ORDER BY
+               CASE WHEN $4 = true THEN t.name END ASC,
+               CASE WHEN $4 = true THEN s.start_time END ASC,
+               b.booking_time DESC"#,
         )
         .bind(user_id)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db_err!("Failed to fetch bookings"))?;
-
-        Ok(rows.into_iter().map(map_enriched_row).collect())
-    }
-
-    /// Fetches all bookings for a specific game with turf, game, and price details.
-    /// Used by managers and admins to see all bookings for a specific game.
-    pub async fn find_by_game_id_enriched(
-        state: &crate::config::state::SharedState,
-        game_id: i32,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
-        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
-
-        let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
-            r#"SELECT b.id, b.slot_id, t.id as turf_id,
-                    b.payment_status, b.booking_time,
-                    b.contact_name, b.contact_phone,
-                    b.total_price, b.paid_amount, b.unpaid_amount,
-                    t.name as turf_name, g.name as game_name,
-                    s.start_time, s.end_time,
-                    u.username, u.phone
-             FROM bookings b
-             JOIN slots s ON b.slot_id = s.id
-             JOIN games g ON s.game_id = g.id
-             JOIN turfs t ON g.turf_id = t.id
-             LEFT JOIN users u ON b.user_id = u.id
-             WHERE g.id = $1
-             ORDER BY b.booking_time DESC"#,
-        )
         .bind(game_id)
+        .bind(manager_id)
+        .bind(today)
         .fetch_all(&mut *conn)
         .await
         .map_err(db_err!("Failed to fetch bookings"))?;
-
-        Ok(rows.into_iter().map(map_enriched_row).collect())
-    }
-
-    /// Fetches all of today's bookings for a manager (filtered by turf manager_id)
-    /// or all of today's bookings across all turfs for an admin.
-    /// Ordered by turf name, start time, and booking time.
-    pub async fn find_today_by_manager(
-        state: &crate::config::state::SharedState,
-        caller_id: i32,
-        is_admin: bool,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
-        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
-
-        let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
-            r#"SELECT b.id, b.slot_id, t.id as turf_id,
-                    b.payment_status, b.booking_time,
-                    b.contact_name, b.contact_phone,
-                    b.total_price, b.paid_amount, b.unpaid_amount,
-                    t.name as turf_name, g.name as game_name,
-                    s.start_time, s.end_time,
-                    u.username, u.phone
-             FROM bookings b
-             JOIN slots s ON b.slot_id = s.id
-             JOIN games g ON s.game_id = g.id
-             JOIN turfs t ON g.turf_id = t.id
-             LEFT JOIN users u ON b.user_id = u.id
-             WHERE DATE(s.start_time AT TIME ZONE 'Asia/Dhaka') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date
-               AND ($1 = true OR t.manager_id = $2)
-             ORDER BY t.name ASC, s.start_time ASC, b.booking_time DESC"#,
-        )
-        .bind(is_admin)
-        .bind(caller_id)
-        .fetch_all(&mut *conn)
-        .await
-        .map_err(db_err!("Failed to fetch today's bookings"))?;
 
         Ok(rows.into_iter().map(map_enriched_row).collect())
     }

@@ -353,9 +353,9 @@ async fn main() {
                 .put(api::handlers::user_handlers::update_profile::update_profile_handler),
         )
         .route(
-            "/users/{id}/bookings",
+            "/bookings",
             axum::routing::get(
-                api::handlers::user_handlers::get_user_bookings::get_user_bookings_handler,
+                api::handlers::booking_handlers::get_bookings::get_bookings_handler,
             ),
         )
         .route(
@@ -405,12 +405,7 @@ async fn main() {
             "/slots/{id}",
             axum::routing::delete(api::handlers::slot_handlers::delete_slot::delete_slot_handler),
         )
-        .route(
-            "/games/{id}/bookings",
-            axum::routing::get(
-                api::handlers::booking_handlers::get_game_bookings::get_game_bookings_handler,
-            ),
-        )
+
         .route(
             "/bookings/{id}/payment",
             axum::routing::patch(
@@ -430,12 +425,7 @@ async fn main() {
             axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
                 .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
         )
-        .route(
-            "/manager/bookings/today",
-            axum::routing::get(
-                api::handlers::booking_handlers::get_today_bookings::get_today_bookings_handler,
-            ),
-        )
+
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rbac::require_manager_or_admin,

@@ -34,3 +34,33 @@ pub struct Booking {
     pub unpaid_amount: BigDecimal,
     pub booking_time: DateTime<Utc>,
 }
+
+// ---------------------------------------------------------------------------
+// Enriched DTO & Filter Query
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BookingDetail {
+    pub id: i32,
+    pub slot_id: i32,
+    pub turf_id: i32,
+    pub user_name: Option<String>,
+    pub user_phone: Option<String>,
+    pub turf_name: String,
+    pub game_name: String,
+    pub total_price: BigDecimal,
+    pub advance_paid: BigDecimal,
+    pub due_amount: BigDecimal,
+    pub payment_status: PaymentStatus,
+    pub booking_time: DateTime<Utc>,
+    pub start_time: DateTime<Utc>,
+    pub end_time: DateTime<Utc>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct BookingFilter {
+    pub user_id: Option<i32>,
+    pub game_id: Option<i32>,
+    pub today: Option<bool>,
+}
+

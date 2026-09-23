@@ -478,80 +478,105 @@ impl BookingService {
         Self::process_gateway_payment(state, slot_id, user_id, PaymentStatus::FullyPaid).await
     }
 
-    /// Fetch all bookings for a user (regular user sees only their bookings).
-    #[tracing::instrument(skip(state), fields(user_id), name = "booking.get_user_bookings")]
-    pub async fn get_user_bookings(
-        state: &SharedState,
-        user_id: i32,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
-        BookingRepository::find_by_user_id_enriched(state, user_id).await
-    }
-
-    /// Fetch all bookings for a specific game.
-    /// For managers: verifies they own the turf that the game belongs to.
-    /// For admins: allows access to all games.
+    /// Unified booking fetcher.
+    /// Supports user bookings, game bookings, manager's today schedule, and admin views.
     #[tracing::instrument(
         skip(state),
-        fields(game_id, caller_id, is_manager),
-        name = "booking.get_game_bookings"
+        fields(caller_id, ?caller_role, ?filter),
+        name = "booking.get_bookings"
     )]
-    pub async fn get_game_bookings(
+    pub async fn get_bookings(
         state: &SharedState,
-        game_id: i32,
         caller_id: i32,
-        is_manager: bool,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
+        caller_role: &crate::domain::models::users::Role,
+        filter: crate::domain::models::bookings::BookingFilter,
+    ) -> Result<Vec<crate::domain::models::bookings::BookingDetail>, AppError> {
+        use crate::domain::models::users::Role;
         use crate::repositories::game_repo::GameRepository;
         use crate::repositories::turf_repo::TurfRepository;
 
-        // Fetch the game to get its turf_id
-        let game = match GameRepository::find_by_id(state, game_id).await? {
-            Some(g) => g,
-            None => {
-                return Err(AppError::not_found(
-                    error_codes::GAME_NOT_FOUND,
-                    "Game not found",
-                ))
-            }
-        };
+        let is_admin = matches!(caller_role, Role::Admin);
+        let is_manager = matches!(caller_role, Role::Manager);
+        let for_today = filter.today.unwrap_or(false);
 
-        // If manager, verify they own the turf
-        if is_manager {
-            let turf = match TurfRepository::find_by_id(state, game.turf_id).await? {
-                Some(t) => t,
-                None => {
-                    return Err(AppError::not_found(
-                        error_codes::TURF_NOT_FOUND,
-                        "Turf not found",
-                    ))
-                }
-            };
-
-            if turf.manager_id != caller_id {
+        // 1. Today's schedule filter
+        if for_today {
+            if !is_admin && !is_manager {
                 return Err(AppError::forbidden(
                     error_codes::FORBIDDEN,
-                    "You are not the manager of this turf",
+                    "Only managers and admins can view today's schedule",
                 ));
             }
+            let manager_id = if is_admin { None } else { Some(caller_id) };
+            return BookingRepository::find_bookings_enriched(
+                state, None, None, manager_id, true,
+            )
+            .await;
         }
 
-        BookingRepository::find_by_game_id_enriched(state, game_id).await
-    }
+        // 2. Specific game filter
+        if let Some(game_id) = filter.game_id {
+            if !is_admin && !is_manager {
+                return Err(AppError::forbidden(
+                    error_codes::FORBIDDEN,
+                    "Regular users cannot view game bookings",
+                ));
+            }
+            if is_manager {
+                let game = match GameRepository::find_by_id(state, game_id).await? {
+                    Some(g) => g,
+                    None => {
+                        return Err(AppError::not_found(
+                            error_codes::GAME_NOT_FOUND,
+                            "Game not found",
+                        ))
+                    }
+                };
 
-    /// Fetch all of today's bookings for a manager (or all turfs if admin).
-    #[tracing::instrument(
-        skip(state),
-        fields(caller_id, is_admin),
-        name = "booking.get_today_bookings_for_manager"
-    )]
-    pub async fn get_today_bookings_for_manager(
-        state: &SharedState,
-        caller_id: i32,
-        is_admin: bool,
-    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
-    {
-        BookingRepository::find_today_by_manager(state, caller_id, is_admin).await
+                let turf = match TurfRepository::find_by_id(state, game.turf_id).await? {
+                    Some(t) => t,
+                    None => {
+                        return Err(AppError::not_found(
+                            error_codes::TURF_NOT_FOUND,
+                            "Turf not found",
+                        ))
+                    }
+                };
+
+                if turf.manager_id != caller_id {
+                    return Err(AppError::forbidden(
+                        error_codes::FORBIDDEN,
+                        "You are not the manager of this turf",
+                    ));
+                }
+            }
+            return BookingRepository::find_bookings_enriched(
+                state, None, Some(game_id), None, false,
+            )
+            .await;
+        }
+
+        // 3. User bookings filter
+        if let Some(user_id) = filter.user_id {
+            if user_id != caller_id && !is_admin {
+                return Err(AppError::forbidden(
+                    error_codes::FORBIDDEN,
+                    "You can only view your own bookings",
+                ));
+            }
+            return BookingRepository::find_bookings_enriched(
+                state, Some(user_id), None, None, false,
+            )
+            .await;
+        }
+
+        // 4. Default fallback: user sees own bookings, manager sees their turfs, admin sees all
+        if is_admin {
+            BookingRepository::find_bookings_enriched(state, None, None, None, false).await
+        } else if is_manager {
+            BookingRepository::find_bookings_enriched(state, None, None, Some(caller_id), false).await
+        } else {
+            BookingRepository::find_bookings_enriched(state, Some(caller_id), None, None, false).await
+        }
     }
 }
