@@ -20,7 +20,7 @@ pub async fn initiate_booking_handler(
     axum::Extension(claim): axum::Extension<Claims>,
     Path(slot_id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {
-    let booking = BookingService::initiate_booking(&state, slot_id, claim.sub).await?;
+    let booking = BookingService::initiate_booking(&state, slot_id, claim.sub, &claim.role).await?;
 
     Ok((
         StatusCode::CREATED,

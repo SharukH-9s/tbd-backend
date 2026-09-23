@@ -19,12 +19,23 @@ impl BookingService {
     ///   4. If the slot was already taken (None returned), reject with SLOT_UNAVAILABLE.
     ///   5. Insert a booking record with payment_status = 'Unpaid' and contact info.
     ///   6. Commit.
-    #[tracing::instrument(skip(state), fields(slot_id, caller_id), name = "booking.initiate")]
+    #[tracing::instrument(skip(state), fields(slot_id, caller_id, ?caller_role), name = "booking.initiate")]
     pub async fn initiate_booking(
         state: &SharedState,
         slot_id: i32,
         caller_id: i32,
+        caller_role: &crate::domain::models::users::Role,
     ) -> Result<Booking, AppError> {
+        // ── 0. Role guard: Managers cannot initiate bookings ──────────────────
+        // Managers are staff — they manage turf operations but book slots via
+        // the offline (walk-in) flow, not the online payment gateway.
+        if matches!(caller_role, crate::domain::models::users::Role::Manager) {
+            return Err(AppError::forbidden(
+                error_codes::FORBIDDEN,
+                "Managers cannot initiate online bookings. Use the offline booking process instead.",
+            ));
+        }
+
         let mut tx = state.db.begin().await.map_err(|_| {
             AppError::internal(
                 error_codes::TRANSACTION_START_FAILED,
@@ -508,10 +519,8 @@ impl BookingService {
                 ));
             }
             let manager_id = if is_admin { None } else { Some(caller_id) };
-            return BookingRepository::find_bookings_enriched(
-                state, None, None, manager_id, true,
-            )
-            .await;
+            return BookingRepository::find_bookings_enriched(state, None, None, manager_id, true)
+                .await;
         }
 
         // 2. Specific game filter
@@ -551,7 +560,11 @@ impl BookingService {
                 }
             }
             return BookingRepository::find_bookings_enriched(
-                state, None, Some(game_id), None, false,
+                state,
+                None,
+                Some(game_id),
+                None,
+                false,
             )
             .await;
         }
@@ -565,7 +578,11 @@ impl BookingService {
                 ));
             }
             return BookingRepository::find_bookings_enriched(
-                state, Some(user_id), None, None, false,
+                state,
+                Some(user_id),
+                None,
+                None,
+                false,
             )
             .await;
         }
@@ -574,9 +591,11 @@ impl BookingService {
         if is_admin {
             BookingRepository::find_bookings_enriched(state, None, None, None, false).await
         } else if is_manager {
-            BookingRepository::find_bookings_enriched(state, None, None, Some(caller_id), false).await
+            BookingRepository::find_bookings_enriched(state, None, None, Some(caller_id), false)
+                .await
         } else {
-            BookingRepository::find_bookings_enriched(state, Some(caller_id), None, None, false).await
+            BookingRepository::find_bookings_enriched(state, Some(caller_id), None, None, false)
+                .await
         }
     }
 }
