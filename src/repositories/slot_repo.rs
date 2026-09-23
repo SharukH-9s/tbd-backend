@@ -175,7 +175,7 @@ impl SlotRepository {
         )
         .fetch_one(executor)
         .await
-        .map(|n| n.unwrap_or(0))
+        .map(|n: Option<i64>| n.unwrap_or(0))
         .map_err(db_err!("Failed to check for orphaned slots"))
     }
 
@@ -191,7 +191,7 @@ impl SlotRepository {
         )
         .fetch_one(executor)
         .await
-        .map(|n| n.unwrap_or(0))
+        .map(|n: Option<i64>| n.unwrap_or(0))
         .map_err(db_err!("Failed to check for active bookings before deletion"))
     }
 

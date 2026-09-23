@@ -3,22 +3,92 @@
   "query": "SELECT t.id, t.manager_id, t.name, t.location, t.description,\n                    t.created_at, t.updated_at,\n                    t.google_maps_url, t.latitude, t.longitude,\n                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone\n             FROM turfs t\n             LEFT JOIN users u ON t.manager_id = u.id\n             WHERE t.manager_id = $1",
   "describe": {
     "columns": [
-      {"ordinal":0,"name":"id","type_info":"Int4"},
-      {"ordinal":1,"name":"manager_id","type_info":"Int4"},
-      {"ordinal":2,"name":"name","type_info":"Text"},
-      {"ordinal":3,"name":"location","type_info":"Text"},
-      {"ordinal":4,"name":"description","type_info":"Text"},
-      {"ordinal":5,"name":"created_at","type_info":"Timestamptz"},
-      {"ordinal":6,"name":"updated_at","type_info":"Timestamptz"},
-      {"ordinal":7,"name":"google_maps_url","type_info":"Text"},
-      {"ordinal":8,"name":"latitude","type_info":"Float8"},
-      {"ordinal":9,"name":"longitude","type_info":"Float8"},
-      {"ordinal":10,"name":"manager_name","type_info":"Text"},
-      {"ordinal":11,"name":"manager_email","type_info":"Text"},
-      {"ordinal":12,"name":"manager_phone","type_info":"Text"}
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "manager_id",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "location",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "google_maps_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "latitude",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 9,
+        "name": "longitude",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 10,
+        "name": "manager_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "manager_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "manager_phone",
+        "type_info": "Text"
+      }
     ],
-    "parameters": {"Left": ["Int4"]},
-    "nullable": [false,false,false,false,false,false,false,true,true,true,true,true,true]
+    "parameters": {
+      "Left": [
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
   },
   "hash": "fec61405939d3200cf9d445dc22aedad3b6be2582e3c6818f542297a463d88c1"
 }

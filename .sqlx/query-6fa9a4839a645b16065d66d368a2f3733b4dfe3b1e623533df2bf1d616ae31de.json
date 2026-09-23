@@ -2,9 +2,27 @@
   "db_name": "PostgreSQL",
   "query": "INSERT INTO turfs (manager_id, name, location, description, google_maps_url, latitude, longitude)\n             VALUES ($1, $2, $3, $4, $5, $6, $7)\n             RETURNING id",
   "describe": {
-    "columns": [{"ordinal":0,"name":"id","type_info":"Int4"}],
-    "parameters": {"Left": ["Int4","Text","Text","Text","Text","Float8","Float8"]},
-    "nullable": [false]
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Float8",
+        "Float8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
   },
   "hash": "6fa9a4839a645b16065d66d368a2f3733b4dfe3b1e623533df2bf1d616ae31de"
 }

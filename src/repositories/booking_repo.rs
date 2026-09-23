@@ -26,7 +26,7 @@ impl BookingRepository {
         )
         .fetch_one(executor)
         .await
-        .map(|n| n.unwrap_or(0))
+        .map(|n: Option<i64>| n.unwrap_or(0))
         .map_err(db_err!("Failed to check for existing pending bookings"))?;
 
         Ok(count >= 2) // block if user already holds 2 or more pending slots

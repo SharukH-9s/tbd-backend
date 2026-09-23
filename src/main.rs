@@ -324,11 +324,7 @@ async fn main() {
         .route(
             "/turfs/{id}/photos",
             axum::routing::get(api::handlers::turf_photo_handlers::get_photos::get_photos_handler),
-        )
-        .layer(middleware::from_fn_with_state(
-            shared_state.clone(),
-            api::middleware::rbac::require_auth,
-        ));
+        );
 
     let user_api_routes = Router::new()
         .route(
