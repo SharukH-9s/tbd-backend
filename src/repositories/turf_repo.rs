@@ -13,15 +13,17 @@ impl TurfRepository {
     // inferred as nullable (Option<String>) by the macro, matching the Turf struct fields.
 
     pub async fn find_all(state: &SharedState) -> Result<Vec<Turf>, AppError> {
-        sqlx::query_as!(
-            Turf,
-            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+        sqlx::query_as::<sqlx::Postgres, Turf>(
+            r#"SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
                     t.google_maps_url, t.latitude, t.longitude,
-                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone,
+                    COALESCE(ARRAY_AGG(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL), ARRAY[]::text[]) AS sport_types
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
-             ORDER BY t.id ASC",
+             LEFT JOIN games g ON g.turf_id = t.id
+             GROUP BY t.id, u.username, u.email, u.phone
+             ORDER BY t.id ASC"#,
         )
         .fetch_all(&state.db)
         .await
@@ -37,17 +39,19 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         id: i32,
     ) -> Result<Option<Turf>, AppError> {
-        sqlx::query_as!(
-            Turf,
-            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+        sqlx::query_as::<sqlx::Postgres, Turf>(
+            r#"SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
                     t.google_maps_url, t.latitude, t.longitude,
-                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone,
+                    COALESCE(ARRAY_AGG(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL), ARRAY[]::text[]) AS sport_types
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
-             WHERE t.id = $1",
-            id,
+             LEFT JOIN games g ON g.turf_id = t.id
+             WHERE t.id = $1
+             GROUP BY t.id, u.username, u.email, u.phone"#,
         )
+        .bind(id)
         .fetch_optional(executor)
         .await
         .map_err(db_err!("Failed to fetch turf from database (tx)"))
@@ -68,18 +72,20 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         manager_id: i32,
     ) -> Result<Vec<Turf>, AppError> {
-        sqlx::query_as!(
-            Turf,
-            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+        sqlx::query_as::<sqlx::Postgres, Turf>(
+            r#"SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
                     t.google_maps_url, t.latitude, t.longitude,
-                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone,
+                    COALESCE(ARRAY_AGG(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL), ARRAY[]::text[]) AS sport_types
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
+             LEFT JOIN games g ON g.turf_id = t.id
              WHERE t.manager_id = $1
-             ORDER BY t.id ASC",
-            manager_id,
+             GROUP BY t.id, u.username, u.email, u.phone
+             ORDER BY t.id ASC"#,
         )
+        .bind(manager_id)
         .fetch_all(executor)
         .await
         .map_err(db_err!("Failed to fetch manager turfs from database"))
@@ -89,17 +95,19 @@ impl TurfRepository {
         executor: &mut sqlx::PgConnection,
         manager_id: i32,
     ) -> Result<Option<Turf>, AppError> {
-        sqlx::query_as!(
-            Turf,
-            "SELECT t.id, t.manager_id, t.name, t.location, t.description,
+        sqlx::query_as::<sqlx::Postgres, Turf>(
+            r#"SELECT t.id, t.manager_id, t.name, t.location, t.description,
                     t.created_at, t.updated_at,
                     t.google_maps_url, t.latitude, t.longitude,
-                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone
+                    u.username AS manager_name, u.email AS manager_email, u.phone AS manager_phone,
+                    COALESCE(ARRAY_AGG(DISTINCT g.name) FILTER (WHERE g.name IS NOT NULL), ARRAY[]::text[]) AS sport_types
              FROM turfs t
              LEFT JOIN users u ON t.manager_id = u.id
-             WHERE t.manager_id = $1",
-            manager_id,
+             LEFT JOIN games g ON g.turf_id = t.id
+             WHERE t.manager_id = $1
+             GROUP BY t.id, u.username, u.email, u.phone"#,
         )
+        .bind(manager_id)
         .fetch_optional(executor)
         .await
         .map_err(db_err!("Failed to fetch turf by manager ID from database"))

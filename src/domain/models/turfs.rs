@@ -21,6 +21,11 @@ pub struct Turf {
     pub google_maps_url: Option<String>,
     pub latitude: Option<f64>,
     pub longitude: Option<f64>,
+
+    // Aggregated sport types from games table
+    #[sqlx(default)]
+    #[serde(default)]
+    pub sport_types: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]

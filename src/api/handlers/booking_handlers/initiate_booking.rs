@@ -4,10 +4,10 @@ use crate::domain::dtos::responses::SuccessResponse;
 use crate::domain::errors::AppError;
 use crate::services::booking_service::BookingService;
 use axum::{
-    Json,
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
+    Json,
 };
 
 /// POST /slots/:id/book

@@ -539,4 +539,19 @@ impl BookingService {
 
         BookingRepository::find_by_game_id_enriched(state, game_id).await
     }
+
+    /// Fetch all of today's bookings for a manager (or all turfs if admin).
+    #[tracing::instrument(
+        skip(state),
+        fields(caller_id, is_admin),
+        name = "booking.get_today_bookings_for_manager"
+    )]
+    pub async fn get_today_bookings_for_manager(
+        state: &SharedState,
+        caller_id: i32,
+        is_admin: bool,
+    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
+    {
+        BookingRepository::find_today_by_manager(state, caller_id, is_admin).await
+    }
 }

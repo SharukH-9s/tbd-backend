@@ -1,9 +1,9 @@
 use crate::config::state::SharedState;
 use crate::domain::dtos::responses::SuccessResponse;
-use crate::domain::errors::{AppError, error_codes};
+use crate::domain::errors::{error_codes, AppError};
 use crate::services::auth_service::AuthService;
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use axum_extra::extract::{CookieJar, cookie::Cookie};
+use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use axum_extra::extract::{cookie::Cookie, CookieJar};
 use time;
 
 pub async fn refresh_handler(

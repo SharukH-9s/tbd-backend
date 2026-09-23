@@ -230,76 +230,88 @@ impl BookingRepository {
         )
         .await
     }
+}
 
-    // ---------------------------------------------------------------------------
-    // Pattern 2: find_enriched_internal refactoring
-    //
-    // The original generic helper injected a filter clause via format!() at runtime,
-    // which is incompatible with sqlx::query!. It has been deleted and replaced by
-    // two concrete public functions, each with its own fully-spelled-out SQL literal.
-    // The row-mapping logic (advance_paid / due_amount calculation) is preserved.
-    // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Pattern 2: find_enriched_internal refactoring
+// ---------------------------------------------------------------------------
 
+#[derive(sqlx::FromRow)]
+struct BookingEnrichedRow {
+    id: i32,
+    slot_id: i32,
+    turf_id: i32,
+    payment_status: PaymentStatus,
+    booking_time: chrono::DateTime<chrono::Utc>,
+    contact_name: Option<String>,
+    contact_phone: Option<String>,
+    total_price: bigdecimal::BigDecimal,
+    paid_amount: bigdecimal::BigDecimal,
+    unpaid_amount: bigdecimal::BigDecimal,
+    turf_name: String,
+    game_name: String,
+    start_time: chrono::DateTime<chrono::Utc>,
+    end_time: chrono::DateTime<chrono::Utc>,
+    username: Option<String>,
+    phone: Option<String>,
+}
+
+fn map_enriched_row(
+    row: BookingEnrichedRow,
+) -> crate::api::handlers::user_handlers::get_user_bookings::BookingDetail {
+    use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
+    let user_name = row.username.or(row.contact_name);
+    let user_phone = row.phone.or(row.contact_phone);
+
+    BookingDetail {
+        id: row.id,
+        slot_id: row.slot_id,
+        turf_id: row.turf_id,
+        user_name,
+        user_phone,
+        turf_name: row.turf_name,
+        game_name: row.game_name,
+        total_price: row.total_price,
+        advance_paid: row.paid_amount,
+        due_amount: row.unpaid_amount,
+        payment_status: row.payment_status,
+        booking_time: row.booking_time,
+        start_time: row.start_time,
+        end_time: row.end_time,
+    }
+}
+
+impl BookingRepository {
     /// Fetches all bookings for a user with turf, game, and price details.
     pub async fn find_by_user_id_enriched(
         state: &crate::config::state::SharedState,
         user_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
-        use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
-
         let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
 
-        let rows = sqlx::query!(
-            // username and phone are NOT NULL in the users table, but come via LEFT JOIN
-            // (offline bookings have no user row). The "col?" suffix forces sqlx to
-            // infer Option<String> regardless of the underlying column constraint.
-            "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
+        let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
+            r#"SELECT b.id, b.slot_id, t.id as turf_id,
+                    b.payment_status, b.booking_time,
                     b.contact_name, b.contact_phone,
                     b.total_price, b.paid_amount, b.unpaid_amount,
                     t.name as turf_name, g.name as game_name,
                     s.start_time, s.end_time,
-                    u.username as \"username?\", u.phone as \"phone?\"
+                    u.username, u.phone
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
              JOIN games g ON s.game_id = g.id
              JOIN turfs t ON g.turf_id = t.id
              LEFT JOIN users u ON b.user_id = u.id
              WHERE b.user_id = $1
-             ORDER BY b.booking_time DESC",
-            user_id,
+             ORDER BY b.booking_time DESC"#,
         )
+        .bind(user_id)
         .fetch_all(&mut *conn)
         .await
         .map_err(db_err!("Failed to fetch bookings"))?;
 
-        let booking_details: Vec<BookingDetail> = rows
-            .into_iter()
-            .map(|row| {
-                // Prefer the joined user profile; fall back to the contact fields stored at
-                // booking time for offline/unauthenticated bookings.
-                let user_name = row.username.or(row.contact_name);
-                let user_phone = row.phone.or(row.contact_phone);
-
-                BookingDetail {
-                    id: row.id,
-                    slot_id: row.slot_id,
-                    user_name,
-                    user_phone,
-                    turf_name: row.turf_name,
-                    game_name: row.game_name,
-                    total_price: row.total_price,
-                    advance_paid: row.paid_amount,
-                    due_amount: row.unpaid_amount,
-                    payment_status: row.payment_status,
-                    booking_time: row.booking_time,
-                    start_time: row.start_time,
-                    end_time: row.end_time,
-                }
-            })
-            .collect();
-
-        Ok(booking_details)
+        Ok(rows.into_iter().map(map_enriched_row).collect())
     }
 
     /// Fetches all bookings for a specific game with turf, game, and price details.
@@ -309,55 +321,67 @@ impl BookingRepository {
         game_id: i32,
     ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
     {
-        use crate::api::handlers::user_handlers::get_user_bookings::BookingDetail;
-
         let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
 
-        let rows = sqlx::query!(
-            "SELECT b.id, b.slot_id, b.payment_status as \"payment_status: PaymentStatus\", b.booking_time,
+        let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
+            r#"SELECT b.id, b.slot_id, t.id as turf_id,
+                    b.payment_status, b.booking_time,
                     b.contact_name, b.contact_phone,
                     b.total_price, b.paid_amount, b.unpaid_amount,
                     t.name as turf_name, g.name as game_name,
                     s.start_time, s.end_time,
-                    u.username as \"username?\", u.phone as \"phone?\"
+                    u.username, u.phone
              FROM bookings b
              JOIN slots s ON b.slot_id = s.id
              JOIN games g ON s.game_id = g.id
              JOIN turfs t ON g.turf_id = t.id
              LEFT JOIN users u ON b.user_id = u.id
              WHERE g.id = $1
-             ORDER BY b.booking_time DESC",
-            game_id,
+             ORDER BY b.booking_time DESC"#,
         )
+        .bind(game_id)
         .fetch_all(&mut *conn)
         .await
         .map_err(db_err!("Failed to fetch bookings"))?;
 
-        let booking_details: Vec<BookingDetail> = rows
-            .into_iter()
-            .map(|row| {
-                let user_name = row.username.or(row.contact_name);
-                let user_phone = row.phone.or(row.contact_phone);
+        Ok(rows.into_iter().map(map_enriched_row).collect())
+    }
 
-                BookingDetail {
-                    id: row.id,
-                    slot_id: row.slot_id,
-                    user_name,
-                    user_phone,
-                    turf_name: row.turf_name,
-                    game_name: row.game_name,
-                    total_price: row.total_price,
-                    advance_paid: row.paid_amount,
-                    due_amount: row.unpaid_amount,
-                    payment_status: row.payment_status,
-                    booking_time: row.booking_time,
-                    start_time: row.start_time,
-                    end_time: row.end_time,
-                }
-            })
-            .collect();
+    /// Fetches all of today's bookings for a manager (filtered by turf manager_id)
+    /// or all of today's bookings across all turfs for an admin.
+    /// Ordered by turf name, start time, and booking time.
+    pub async fn find_today_by_manager(
+        state: &crate::config::state::SharedState,
+        caller_id: i32,
+        is_admin: bool,
+    ) -> Result<Vec<crate::api::handlers::user_handlers::get_user_bookings::BookingDetail>, AppError>
+    {
+        let mut conn = state.db.acquire().await.map_err(db_conn_err!())?;
 
-        Ok(booking_details)
+        let rows = sqlx::query_as::<sqlx::Postgres, BookingEnrichedRow>(
+            r#"SELECT b.id, b.slot_id, t.id as turf_id,
+                    b.payment_status, b.booking_time,
+                    b.contact_name, b.contact_phone,
+                    b.total_price, b.paid_amount, b.unpaid_amount,
+                    t.name as turf_name, g.name as game_name,
+                    s.start_time, s.end_time,
+                    u.username, u.phone
+             FROM bookings b
+             JOIN slots s ON b.slot_id = s.id
+             JOIN games g ON s.game_id = g.id
+             JOIN turfs t ON g.turf_id = t.id
+             LEFT JOIN users u ON b.user_id = u.id
+             WHERE DATE(s.start_time AT TIME ZONE 'Asia/Dhaka') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date
+               AND ($1 = true OR t.manager_id = $2)
+             ORDER BY t.name ASC, s.start_time ASC, b.booking_time DESC"#,
+        )
+        .bind(is_admin)
+        .bind(caller_id)
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(db_err!("Failed to fetch today's bookings"))?;
+
+        Ok(rows.into_iter().map(map_enriched_row).collect())
     }
 
     /// Deletes orphaned 'Unpaid' booking records whose slot is now 'Available'.

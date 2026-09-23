@@ -430,6 +430,12 @@ async fn main() {
             axum::routing::put(api::handlers::turf_handlers::update_turf::update_turf_handler)
                 .delete(api::handlers::turf_handlers::delete_turf::delete_turf_handler),
         )
+        .route(
+            "/manager/bookings/today",
+            axum::routing::get(
+                api::handlers::booking_handlers::get_today_bookings::get_today_bookings_handler,
+            ),
+        )
         .layer(middleware::from_fn_with_state(
             shared_state.clone(),
             api::middleware::rbac::require_manager_or_admin,

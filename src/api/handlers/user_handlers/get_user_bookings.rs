@@ -10,10 +10,11 @@ use axum::response::IntoResponse;
 use bigdecimal::BigDecimal;
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct BookingDetail {
     pub id: i32,
     pub slot_id: i32,
+    pub turf_id: i32,
     pub user_name: Option<String>,
     pub user_phone: Option<String>,
     pub turf_name: String,
