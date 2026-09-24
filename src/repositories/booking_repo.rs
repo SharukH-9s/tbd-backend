@@ -256,9 +256,7 @@ struct BookingEnrichedRow {
     phone: Option<String>,
 }
 
-fn map_enriched_row(
-    row: BookingEnrichedRow,
-) -> crate::domain::models::bookings::BookingDetail {
+fn map_enriched_row(row: BookingEnrichedRow) -> crate::domain::models::bookings::BookingDetail {
     use crate::domain::models::bookings::BookingDetail;
     let user_name = row.username.or(row.contact_name);
     let user_phone = row.phone.or(row.contact_phone);
@@ -309,7 +307,15 @@ impl BookingRepository {
              WHERE ($1::INT IS NULL OR b.user_id = $1)
                AND ($2::INT IS NULL OR g.id = $2)
                AND ($3::INT IS NULL OR t.manager_id = $3)
-               AND ($4::BOOLEAN = false OR DATE(s.start_time AT TIME ZONE 'Asia/Dhaka') = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date)
+               AND ($4::BOOLEAN = false OR (
+                 s.start_time >= ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date::timestamp + g.game_start_time) AT TIME ZONE 'Asia/Dhaka'
+                 AND s.start_time < (
+                   CASE WHEN g.game_end_time < g.game_start_time
+                     THEN ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date::timestamp + INTERVAL '1 day' + g.game_end_time) AT TIME ZONE 'Asia/Dhaka'
+                     ELSE ((CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Dhaka')::date::timestamp + g.game_end_time) AT TIME ZONE 'Asia/Dhaka'
+                   END
+                 )
+               ))
              ORDER BY
                CASE WHEN $4 = true THEN t.name END ASC,
                CASE WHEN $4 = true THEN s.start_time END ASC,
