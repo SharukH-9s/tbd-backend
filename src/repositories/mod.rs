@@ -5,3 +5,4 @@ pub mod user_repo;
 pub mod slot_repo;
 pub mod booking_repo;
 pub mod turf_photo_repo;
+pub mod analytics_repo;

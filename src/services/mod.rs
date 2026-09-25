@@ -7,3 +7,4 @@ pub mod slot_service;
 pub mod booking_service;
 pub mod relay;
 pub mod turf_photo_service;
+pub mod analytics_service;

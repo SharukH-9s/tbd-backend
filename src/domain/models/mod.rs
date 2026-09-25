@@ -4,3 +4,4 @@ pub mod turfs;
 pub mod users;
 pub mod bookings;
 pub mod turf_photos;
+pub mod analytics;

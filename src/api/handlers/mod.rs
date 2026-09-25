@@ -9,3 +9,4 @@ pub mod slot_handlers;
 pub mod booking_handlers;
 pub mod user_handlers;
 pub mod turf_photo_handlers;
+pub mod analytics_handlers;
