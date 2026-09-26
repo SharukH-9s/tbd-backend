@@ -12,6 +12,8 @@ pub async fn create_game_handler(
     Path(turf_id): Path<i32>,
     Json(payload): Json<CreateGameRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate()?;
+
     let newly_created_game = GameService::create_game(
         &database,
         turf_id,

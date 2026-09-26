@@ -19,6 +19,8 @@ pub async fn create_settings_handler(
     Path(game_id): Path<i32>,
     Json(payload): Json<CreateGameSettingsRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate()?;
+
     let new_settings = GameSettingsService::create_settings(
         &database,
         game_id,

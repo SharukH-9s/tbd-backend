@@ -20,6 +20,8 @@ pub async fn get_bookings_handler(
     Query(filter): Query<BookingFilter>,
     Extension(claim): Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
+    filter.validate()?;
+
     let bookings = BookingService::get_bookings(&database, claim.sub, &claim.role, filter).await?;
 
     Ok(Json(SuccessResponse {

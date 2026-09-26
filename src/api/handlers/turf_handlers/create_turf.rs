@@ -22,6 +22,8 @@ pub async fn create_turf(
     Extension(claim): Extension<Claims>, // Read pre-decoded claims from middleware!
     Json(payload): Json<CreateTurfRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Validate all fields before forwarding to the service
+    payload.validate()?;
 
     // We pass the parsed data to the service layer.
     // Notice how we use `claim.sub` as the creator_id: the user who is logged in!

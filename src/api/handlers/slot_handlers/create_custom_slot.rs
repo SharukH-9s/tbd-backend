@@ -18,6 +18,8 @@ pub async fn create_custom_slot_handler(
     Path(game_id): Path<i32>,
     Json(payload): Json<CreateCustomSlotRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate()?;
+
     let slot = SlotService::create_custom_slot(
         &state,
         game_id,

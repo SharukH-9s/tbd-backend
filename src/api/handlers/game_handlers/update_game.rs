@@ -12,6 +12,8 @@ pub async fn update_game_handler(
     Path(game_id): Path<i32>,
     Json(payload): Json<UpdateGameRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate()?;
+
     let updated_game = GameService::update_game(
         &database,
         game_id,

@@ -27,6 +27,8 @@ pub async fn create_slot_handler(
     Path(game_id): Path<i32>,
     Json(payload): Json<CreateSlotRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    payload.validate()?;
+
     let slot = SlotService::create_slot(
         &state,
         game_id,

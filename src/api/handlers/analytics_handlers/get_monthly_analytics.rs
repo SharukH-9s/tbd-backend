@@ -18,6 +18,8 @@ pub async fn get_monthly_analytics_handler(
     Query(filter): Query<MonthlyAnalyticsFilter>,
     Extension(claim): Extension<Claims>,
 ) -> Result<impl IntoResponse, AppError> {
+    filter.validate()?;
+
     let analytics = AnalyticsService::get_monthly_analytics(
         &database,
         claim.sub,

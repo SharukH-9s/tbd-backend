@@ -8,14 +8,29 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
-use chrono::NaiveDate;
+use chrono::{Datelike, NaiveDate};
 use serde::Deserialize;
+use crate::domain::errors::error_codes;
 
 /// Query parameters for filtering slots by date.
 /// Example: GET /games/5/slots?date=2026-04-10
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SlotDateQuery {
     pub date: NaiveDate, // e.g. "2026-04-10"
+}
+
+impl SlotDateQuery {
+    pub fn validate(&self) -> Result<(), AppError> {
+        let year = self.date.year();
+        if year < 2000 || year > 2100 {
+            return Err(AppError::bad_request(
+                error_codes::INVALID_INPUT,
+                "Query date year must be between 2000 and 2100",
+            ));
+        }
+        Ok(())
+    }
 }
 
 /// GET /games/:game_id/slots?date=YYYY-MM-DD
@@ -28,6 +43,8 @@ pub async fn get_slots_handler(
     Path(game_id): Path<i32>,
     Query(params): Query<SlotDateQuery>,
 ) -> Result<impl IntoResponse, AppError> {
+    params.validate()?;
+
     let slots = SlotService::get_slots_for_game_on_date(&state, game_id, params.date).await?;
 
     Ok((

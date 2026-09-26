@@ -15,6 +15,8 @@ impl AuthService {
         database: &SharedState,
         payload: &LoginReq,
     ) -> Result<(LoginResponse, String), AppError> {
+        payload.validate()?;
+
         let user = match UserRepository::find_by_email(database, &payload.email).await? {
             Some(u) => u,
             None => {

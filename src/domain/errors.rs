@@ -27,6 +27,8 @@ pub struct AppError {
 }
 
 pub mod error_codes {
+    pub const INVALID_INPUT: &str = "INVALID_INPUT";
+    #[allow(dead_code)]
     pub const INVALID_USERNAME: &str = "INVALID_USERNAME";
     pub const USERNAME_EXISTS: &str = "USERNAME_EXISTS";
     pub const EMAIL_EXISTS: &str = "EMAIL_EXISTS";

@@ -13,10 +13,8 @@ impl UserService {
         database: &SharedState,
         payload: &RegisterRequest,
     ) -> Result<UserResponse, AppError> {
-        // Validation: Check length of username and email first
-        if payload.username.trim().len() <= 3 {
-            return Err(AppError::bad_request(error_codes::INVALID_USERNAME, "Username must be at least 4 characters"));
-        }
+        // Validate all fields first (username, email, password, phone)
+        payload.validate()?;
 
         let hashed_pass = hash(&payload.password, DEFAULT_COST).map_err(|_| AppError::internal(error_codes::HASH_FAILED, "Failed to hash password"))?; // hash returns Result<String, BcryptError>, so we use map_err to convert the error to AppError and return it using ? operator 
 
@@ -55,20 +53,18 @@ impl UserService {
             return Err(AppError::forbidden(error_codes::FORBIDDEN, "You do not have permission to update this profile"));
         }
 
+        // 1a. Validate the incoming fields before any DB work
+        payload.validate()?;
+
         // 2. Fetch existing user
         let existing_user = match UserRepository::find_by_id_tx(&mut *conn, target_user_id).await? {
             Some(u) => u,
             None => return Err(AppError::not_found(error_codes::USER_NOT_FOUND, "User not found")),
         };
 
-        // 3. Merge fields & validate
+        // 3. Merge fields (validate() already checked bounds; just merge with existing)
         let final_username = match payload.username {
-            Some(uname) => {
-                if uname.trim().len() <= 3 {
-                    return Err(AppError::bad_request(error_codes::INVALID_USERNAME, "Username must be at least 4 characters"));
-                }
-                uname
-            }
+            Some(uname) => uname,
             None => existing_user.username,
         };
 

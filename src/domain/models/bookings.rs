@@ -2,6 +2,7 @@ use bigdecimal::BigDecimal;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use crate::domain::errors::{error_codes, AppError};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, sqlx::Type)] // These are SQLx macros used to handle how the enum is stored in the database.
 #[sqlx(type_name = "text", rename_all = "PascalCase")] // variants will be saved as raw text/string in DB and will be converted to enum in Rust
@@ -58,9 +59,32 @@ pub struct BookingDetail {
 }
 
 #[derive(Debug, Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct BookingFilter {
     pub user_id: Option<i32>,
     pub game_id: Option<i32>,
     pub today: Option<bool>,
+}
+
+impl BookingFilter {
+    pub fn validate(&self) -> Result<(), AppError> {
+        if let Some(user_id) = self.user_id {
+            if user_id <= 0 {
+                return Err(AppError::bad_request(
+                    error_codes::INVALID_INPUT,
+                    "user_id must be a positive integer",
+                ));
+            }
+        }
+        if let Some(game_id) = self.game_id {
+            if game_id <= 0 {
+                return Err(AppError::bad_request(
+                    error_codes::INVALID_INPUT,
+                    "game_id must be a positive integer",
+                ));
+            }
+        }
+        Ok(())
+    }
 }
 

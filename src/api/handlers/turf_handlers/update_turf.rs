@@ -19,6 +19,9 @@ pub async fn update_turf_handler(
     Path(id): Path<i32>,
     Json(payload): Json<UpdateTurfRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // Validate all fields before forwarding to the service
+    payload.validate()?;
+
     // 4. Perform the update
     let updated_turf = TurfService::update_turf(
         &database,
