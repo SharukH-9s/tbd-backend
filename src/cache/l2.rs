@@ -60,6 +60,9 @@ impl L2Cache {
     /// Two separate pool connections are used: one for SCAN (which borrows the
     /// connection for the iterator's lifetime via `AsyncIter<'_>`), and one for
     /// the subsequent DEL calls. Both are returned to the pool when done.
+    ///
+    /// Reserved for future use when horizontal scaling requires pattern-based invalidation.
+    #[allow(dead_code)]
     pub async fn delete_pattern(&self, pattern: &str) {
         if !self.enabled {
             return;

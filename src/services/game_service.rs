@@ -37,20 +37,9 @@ impl GameService {
         state: &SharedState,
         turf_id: i32,
     ) -> Result<Vec<Game>, AppError> {
-        // Verify turf exists first (clean 404 before touching the cache)
-        let turf = TurfRepository::find_by_id(state, turf_id).await?;
-        let _turf = match turf {
-            Some(t) => t,
-            None => {
-                return Err(AppError::not_found(
-                    error_codes::TURF_NOT_FOUND,
-                    "Turf not found",
-                ));
-            }
-        };
-
         let cache_key = format!("cache:game:turf:{}", turf_id);
 
+        // Check L1 first — avoids any DB or Redis round-trip on a warm hit.
         if let Some(json_arc) = state.cache.get(&cache_key).await {
             tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
             return serde_json::from_str(&json_arc)
@@ -60,11 +49,21 @@ impl GameService {
         let json_arc = state
             .cache
             .try_get_with(&cache_key, async {
+                // Check L2 before hitting the DB.
                 if let Some(json) = state.l2_cache.get(&cache_key).await {
                     tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
                     return Ok::<Arc<str>, AppError>(json.into());
                 }
+
+                // DB fallback: verify turf exists, then fetch games.
+                // Doing the existence check here means it only runs on a true cache miss,
+                // not on every request.
                 tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                match TurfRepository::find_by_id(state, turf_id).await? {
+                    None => return Err(AppError::not_found(error_codes::TURF_NOT_FOUND, "Turf not found")),
+                    Some(_) => {}
+                }
+
                 let games = GameRepository::find_all_games_by_turf_id(state, turf_id).await?;
                 let json = serde_json::to_string(&games)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;

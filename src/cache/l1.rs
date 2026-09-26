@@ -58,6 +58,7 @@ impl L1Cache {
     }
 
     /// Inserts `value` under `key`. Overwrites any existing entry.
+    #[allow(dead_code)]
     pub async fn set(&self, key: &str, value: impl Into<Arc<str>>) {
         if !self.enabled {
             return;
@@ -77,6 +78,8 @@ impl L1Cache {
     ///
     /// Uses Moka's internal predicate worker — non-blocking for the caller.
     /// Errors are logged but never propagated (cache is a best-effort layer).
+    /// Reserved for future use when horizontal scaling requires pattern-based invalidation.
+    #[allow(dead_code)]
     pub fn invalidate_prefix(&self, prefix: &str) {
         if !self.enabled {
             return;

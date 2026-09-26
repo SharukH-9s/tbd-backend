@@ -1,4 +1,5 @@
 use crate::api::extractors::types::Claims;
+use crate::api::utils::image::compress_image;
 use crate::config::state::SharedState;
 use crate::domain::dtos::responses::SuccessResponse;
 use crate::domain::errors::AppError;
@@ -18,7 +19,7 @@ pub async fn upload_photos_handler(
 ) -> Result<impl IntoResponse, AppError> {
     let mut category = String::new();
     let mut game_id: Option<i32> = None;
-    let mut files: Vec<(String, String, Vec<u8>)> = Vec::new();
+    let mut raw_files: Vec<(String, Vec<u8>)> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.map_err(|e| {
         tracing::error!(error = %e, "Multipart extraction failed");
@@ -40,14 +41,10 @@ pub async fn upload_photos_handler(
             }
             "photos" | "photo" | "file" | "files" => {
                 let filename = field.file_name().unwrap_or("photo.jpg").to_string();
-                let mime_type = field
-                    .content_type()
-                    .unwrap_or("image/jpeg")
-                    .to_string();
                 let bytes = field.bytes().await.map_err(|_| {
                     AppError::bad_request("INVALID_FILE", "Failed to read photo data")
                 })?;
-                files.push((filename, mime_type, bytes.to_vec()));
+                raw_files.push((filename, bytes.to_vec()));
             }
             _ => {
                 // Ignore unexpected fields
@@ -57,6 +54,31 @@ pub async fn upload_photos_handler(
 
     if category.is_empty() {
         category = "Facility Photos".to_string();
+    }
+
+    // Determine resize cap: cover photos get a larger canvas than facility shots.
+    let max_px: u32 = if category == "Cover Photo" { 1920 } else { 1280 };
+
+    // Compress each image on a blocking thread (CPU-bound: decode + Lanczos3 + JPEG encode).
+    // All outputs are JPEG regardless of input format.
+    let mut files: Vec<(String, String, Vec<u8>)> = Vec::with_capacity(raw_files.len());
+    for (filename, raw_bytes) in raw_files {
+        let compressed = tokio::task::spawn_blocking(move || compress_image(raw_bytes, max_px))
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "Image compression task panicked");
+                AppError::internal("COMPRESSION_ERROR", "Failed to compress image")
+            })?;
+
+        // Normalise extension to .jpg and mime to image/jpeg since output is always JPEG
+        let filename = {
+            let stem = std::path::Path::new(&filename)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("photo");
+            format!("{}.jpg", stem)
+        };
+        files.push((filename, "image/jpeg".to_string(), compressed));
     }
 
     let uploaded = TurfPhotoService::upload_photos(

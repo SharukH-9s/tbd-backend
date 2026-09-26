@@ -34,27 +34,9 @@ impl GameSettingsService {
         state: &SharedState,
         game_id: i32,
     ) -> Result<Vec<GameSettings>, AppError> {
-        // Verify the game exists first (gives the caller a clean 404 instead of an empty list)
-        let mut conn = state.db.acquire().await.map_err(|_| {
-            AppError::internal(
-                error_codes::DATABASE_ERROR,
-                "Failed to acquire database connection",
-            )
-        })?;
-
-        match GameRepository::find_by_id_tx(&mut *conn, game_id).await? {
-            None => {
-                return Err(AppError::not_found(
-                    error_codes::GAME_NOT_FOUND,
-                    "Game not found",
-                ))
-            }
-            Some(_) => {}
-        }
-        drop(conn); // release the connection back to the pool before the cache path
-
         let cache_key = format!("cache:settings:game:{}", game_id);
 
+        // Check L1 first — avoids any DB connection or Redis round-trip on a warm hit.
         if let Some(json_arc) = state.cache.get(&cache_key).await {
             tracing::debug!(key = %cache_key, source = "l1", "Cache hit");
             return serde_json::from_str(&json_arc)
@@ -64,11 +46,23 @@ impl GameSettingsService {
         let json_arc = state
             .cache
             .try_get_with(&cache_key, async {
+                // Check L2 before acquiring a DB connection.
                 if let Some(json) = state.l2_cache.get(&cache_key).await {
                     tracing::debug!(key = %cache_key, source = "l2", "Cache hit, warming L1");
                     return Ok::<Arc<str>, AppError>(json.into());
                 }
+
+                // DB fallback: verify game exists, then fetch settings.
+                // Acquiring the connection here means it only happens on a true cache miss.
                 tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
+                let mut conn = state.db.acquire().await.map_err(|_| {
+                    AppError::internal(error_codes::DATABASE_ERROR, "Failed to acquire database connection")
+                })?;
+                match GameRepository::find_by_id_tx(&mut *conn, game_id).await? {
+                    None => return Err(AppError::not_found(error_codes::GAME_NOT_FOUND, "Game not found")),
+                    Some(_) => {}
+                }
+
                 let settings = GameSettingsRepository::find_all_by_game_id(state, game_id).await?;
                 let json = serde_json::to_string(&settings)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
