@@ -3,8 +3,11 @@ use crate::domain::errors::{error_codes, AppError};
 use crate::domain::models::bookings::{Booking, PaymentStatus};
 use crate::domain::models::slots::SlotStatus;
 use crate::repositories::booking_repo::BookingRepository;
+use crate::repositories::game_repo::GameRepository;
 use crate::repositories::slot_repo::SlotRepository;
+use crate::repositories::turf_repo::TurfRepository;
 use crate::repositories::user_repo::UserRepository;
+use uuid::Uuid;
 
 pub struct BookingService;
 
@@ -115,9 +118,6 @@ impl BookingService {
         caller_id: i32,
         caller_role: crate::domain::models::users::Role,
     ) -> Result<Booking, AppError> {
-        use crate::repositories::game_repo::GameRepository;
-        use crate::repositories::turf_repo::TurfRepository;
-
         let mut tx = state.db.begin().await.map_err(|_| {
             AppError::internal(
                 error_codes::TRANSACTION_START_FAILED,
@@ -225,9 +225,6 @@ impl BookingService {
         caller_id: i32,
         caller_role: crate::domain::models::users::Role,
     ) -> Result<(), AppError> {
-        use crate::repositories::game_repo::GameRepository;
-        use crate::repositories::turf_repo::TurfRepository;
-
         let mut tx = state.db.begin().await.map_err(|_| {
             AppError::internal(
                 error_codes::TRANSACTION_START_FAILED,
@@ -414,45 +411,56 @@ impl BookingService {
             }
         };
 
-        // Insert first to get the Postgres-generated UUID, then use it as outbox_id
-        // inside the payload so the worker's idempotency key (processed_jobs.outbox_id)
-        // ties back to the correct outbox row.
-        let outbox_id = sqlx::query_scalar!(
-            "INSERT INTO outbox (event_type, payload)
-                 VALUES ('BookingCreated', '{}'::jsonb)
-                 RETURNING id",
+        let game = match GameRepository::find_by_id_tx(&mut *tx, slot.game_id).await? {
+            Some(g) => g,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::GAME_NOT_FOUND,
+                    "Parent game not found",
+                ))
+            }
+        };
+
+        let turf = match TurfRepository::find_by_id_tx(&mut *tx, game.turf_id).await? {
+            Some(t) => t,
+            None => {
+                return Err(AppError::not_found(
+                    error_codes::TURF_NOT_FOUND,
+                    "Parent turf not found",
+                ))
+            }
+        };
+
+        let outbox_id = Uuid::new_v4();
+
+        let payload = serde_json::json!({
+            "outbox_id":       outbox_id,
+            "booking_id":      updated_booking.id,
+            "user_email":      user.email,
+            "contact_name":    updated_booking.contact_name,
+            "turf_name":       turf.name,
+            "game_name":       game.name,
+            "slot_start":      slot.start_time.to_rfc3339(),
+            "amount":          event_amount.to_string(),
+            "total_price":     updated_booking.total_price.to_string(),
+            "paid_amount":     updated_booking.paid_amount.to_string(),
+            "due_amount":      updated_booking.unpaid_amount.to_string(),
+            "payment_status":  updated_booking.payment_status,
+        });
+
+        sqlx::query(
+            "INSERT INTO outbox (id, event_type, payload)
+             VALUES ($1, 'BookingCreated', $2)",
         )
-        .fetch_one(&mut *tx)
+        .bind(outbox_id)
+        .bind(payload)
+        .execute(&mut *tx)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to insert outbox row");
             AppError::internal(
                 error_codes::INTERNAL_ERROR,
                 "Failed to queue booking confirmation event",
-            )
-        })?;
-
-        let payload = serde_json::json!({
-            "outbox_id":    outbox_id,
-            "booking_id":   updated_booking.id,
-            "user_email":   user.email,
-            "contact_name": updated_booking.contact_name,
-            "slot_start":   slot.start_time.to_rfc3339(),
-            "amount":       event_amount.to_string(),
-        });
-
-        sqlx::query!(
-            "UPDATE outbox SET payload = $1 WHERE id = $2",
-            payload,
-            outbox_id,
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Failed to update outbox payload");
-            AppError::internal(
-                error_codes::INTERNAL_ERROR,
-                "Failed to finalize booking confirmation event",
             )
         })?;
 
@@ -503,8 +511,6 @@ impl BookingService {
         filter: crate::domain::models::bookings::BookingFilter,
     ) -> Result<Vec<crate::domain::models::bookings::BookingDetail>, AppError> {
         use crate::domain::models::users::Role;
-        use crate::repositories::game_repo::GameRepository;
-        use crate::repositories::turf_repo::TurfRepository;
 
         let is_admin = matches!(caller_role, Role::Admin);
         let is_manager = matches!(caller_role, Role::Manager);
