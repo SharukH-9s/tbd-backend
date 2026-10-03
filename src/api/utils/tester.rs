@@ -78,14 +78,8 @@ pub async fn health_check(State(state): State<SharedState>) -> axum::response::R
 /// Generic background keep-alive task — prevents Render's free-tier from spinning down
 /// any named service.
 ///
-/// Behaviour:
-/// - Waits one full interval before the first ping to avoid racing with Render's own
-///   health-check probes during the initial deploy / startup sequence.
-/// - Uses a 90-second HTTP timeout to accommodate Render's cold-start delay
-///   (a sleeping free-tier service can take 30–60s to wake before it can respond).
-/// - On a 429 Too Many Requests (Render's edge throttle during spin-up), backs off
-///   exponentially (30s → 60s → 120s → 300s) before retrying, then resumes the
-///   normal interval after a successful response.
+/// Pings `ping_url` immediately on startup, then every `interval_secs` seconds.
+/// Logs the result of every attempt at INFO level.
 async fn keep_alive(service: &'static str, ping_url: String, interval_secs: u64) {
     use std::time::Duration;
     use tokio::time::sleep;
@@ -101,80 +95,21 @@ async fn keep_alive(service: &'static str, ping_url: String, interval_secs: u64)
         }
     };
 
-    tracing::info!(
-        service,
-        url = %ping_url,
-        interval_secs,
-        "keep_alive: started — first ping in {}s",
-        interval_secs
-    );
-
-    // Wait one full interval before the first ping so we don't race with Render's
-    // own health-check probes during the initial deploy / startup sequence.
-    sleep(Duration::from_secs(interval_secs)).await;
-
-    // Exponential backoff delays (seconds) applied on a 429 response.
-    const BACKOFF_STEPS: &[u64] = &[30, 60, 120, 300];
+    tracing::info!(service, url = %ping_url, interval_secs, "keep_alive: started");
 
     loop {
-        let mut backoff_idx = 0usize;
-
-        loop {
-            match client.get(&ping_url).send().await {
-                Ok(resp) if resp.status().is_success() => {
-                    tracing::info!(
-                        service,
-                        url = %ping_url,
-                        status = %resp.status(),
-                        "keep_alive: ping OK"
-                    );
-                    break; // success — exit backoff loop, sleep normal interval
-                }
-                Ok(resp) if resp.status().as_u16() == 429 => {
-                    // Render's edge is throttling the wake-up request.
-                    // Respect any Retry-After header, otherwise use our backoff table.
-                    let retry_after = resp
-                        .headers()
-                        .get("retry-after")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.parse::<u64>().ok());
-
-                    let wait = retry_after
-                        .unwrap_or_else(|| BACKOFF_STEPS.get(backoff_idx).copied().unwrap_or(300));
-
-                    tracing::info!(
-                        service,
-                        url = %ping_url,
-                        wait_secs = wait,
-                        "keep_alive: 429 from Render edge (spinning up) — retrying in {}s",
-                        wait
-                    );
-
-                    sleep(Duration::from_secs(wait)).await;
-                    backoff_idx = (backoff_idx + 1).min(BACKOFF_STEPS.len() - 1);
-                }
-                Ok(resp) => {
-                    tracing::warn!(
-                        service,
-                        url = %ping_url,
-                        status = %resp.status(),
-                        "keep_alive: ping returned non-2xx"
-                    );
-                    break; // unexpected non-429 error — resume normal schedule
-                }
-                Err(e) => {
-                    tracing::error!(
-                        service,
-                        url = %ping_url,
-                        error = %e,
-                        "keep_alive: ping failed"
-                    );
-                    break; // network error — resume normal schedule
-                }
+        match client.get(&ping_url).send().await {
+            Ok(resp) if resp.status().is_success() => {
+                tracing::info!(service, url = %ping_url, status = %resp.status(), "keep_alive: ping OK");
+            }
+            Ok(resp) => {
+                tracing::warn!(service, url = %ping_url, status = %resp.status(), "keep_alive: ping returned non-2xx");
+            }
+            Err(e) => {
+                tracing::warn!(service, url = %ping_url, error = %e, "keep_alive: ping failed");
             }
         }
 
-        // Normal cadence — wait the full interval before the next keep-alive ping.
         sleep(Duration::from_secs(interval_secs)).await;
     }
 }
