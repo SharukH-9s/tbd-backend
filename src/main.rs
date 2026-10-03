@@ -269,6 +269,8 @@ async fn main() {
             http::header::CONTENT_TYPE,
             http::header::AUTHORIZATION,
             http::header::ACCEPT,
+            http::header::CACHE_CONTROL,
+            http::header::PRAGMA,
         ])
         .allow_credentials(true);
 

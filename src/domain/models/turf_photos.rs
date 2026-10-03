@@ -31,7 +31,11 @@ pub struct TurfPhotoResponse {
 
 impl TurfPhotoResponse {
     pub fn from_metadata(meta: TurfPhotoMetadata) -> Self {
-        let url = format!("/turfs/photos/{}/raw", meta.id);
+        let url = format!(
+            "/turfs/photos/{}/raw?v={}",
+            meta.id,
+            meta.created_at.timestamp()
+        );
         Self {
             id: meta.id,
             turf_id: meta.turf_id,
