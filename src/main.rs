@@ -86,8 +86,8 @@ async fn main() {
     );
 
     // STEP 3: Configure the exporter and provider
-    let service_name = env::var("OTEL_SERVICE_NAME")
-        .unwrap_or_else(|_| "turf_bd_backend".to_string());
+    let service_name =
+        env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| "turf_bd_backend".to_string());
 
     let resource = Resource::builder() // A Resource represents the entity generating the data. Every trace line emitted by this backend will be permanently stamped with identity tags (service.name and deployment.environment)
         .with_service_name(service_name.clone())
@@ -169,7 +169,9 @@ async fn main() {
     let redis_pool = redis_cfg
         .create_pool(Some(deadpool_redis::Runtime::Tokio1))
         .expect("Failed to create Redis connection pool. Ensure REDIS_URL is reachable.");
-    tracing::info!("Initialized Redis connection pool (timeouts: wait=100ms, create=250ms, recycle=50ms)");
+    tracing::info!(
+        "Initialized Redis connection pool (timeouts: wait=100ms, create=250ms, recycle=50ms)"
+    );
 
     // Environment toggles for diagnosing bottlenecks or running without Redis / caches:
     let disable_all_cache = env::var("DISABLE_CACHE")
@@ -204,7 +206,11 @@ async fn main() {
     // L2: Redis distributed cache (5 min TTL). Clones the pool — deadpool_redis::Pool is
     // Arc-backed internally so this is a zero-cost refcount bump, not a new connection pool.
     let l2_cache = crate::cache::l2::L2Cache::new(redis_pool.clone(), l2_enabled);
-    tracing::info!(l1 = l1_enabled, l2 = l2_enabled, "Cache initialization complete");
+    tracing::info!(
+        l1 = l1_enabled,
+        l2 = l2_enabled,
+        "Cache initialization complete"
+    );
 
     let shared_state: SharedState = Arc::new(AppState {
         db,
@@ -239,13 +245,15 @@ async fn main() {
         amqp_url,
     ));
 
-    // Background keep-alive task: pings tbd-worker every 10 minutes to prevent
-    // Render's free-tier from spinning it down and silencing the consumers.
-    // Requires WORKER_URL in env (e.g. https://tbd-worker.onrender.com).
+    // Background keep-alive tasks: ping tbd-worker and Gotenberg every 10 minutes to
+    // prevent Render's free-tier from spinning them down.
+    // Requires WORKER_URL and GOTENBERG_URL in env.
     tokio::spawn(api::utils::tester::keep_alive_worker());
+    tokio::spawn(api::utils::tester::keep_alive_gotenberg());
 
-    let cors_origins_raw = env::var("CORS_ORIGIN")
-        .unwrap_or_else(|_| "http://localhost:5173,https://unique-kelpie-7632c3.netlify.app".to_string());
+    let cors_origins_raw = env::var("CORS_ORIGIN").unwrap_or_else(|_| {
+        "http://localhost:5173,https://unique-kelpie-7632c3.netlify.app".to_string()
+    });
     let cors_origins: Vec<HeaderValue> = cors_origins_raw
         .split(',')
         .map(|s| {
@@ -356,9 +364,7 @@ async fn main() {
         )
         .route(
             "/bookings",
-            axum::routing::get(
-                api::handlers::booking_handlers::get_bookings::get_bookings_handler,
-            ),
+            axum::routing::get(api::handlers::booking_handlers::get_bookings::get_bookings_handler),
         )
         .route(
             "/users/{id}/turfs",

@@ -75,18 +75,116 @@ pub async fn health_check(State(state): State<SharedState>) -> axum::response::R
     }
 }
 
-/// Background keep-alive task — prevents Render's free-tier from spinning down tbd-worker.
+/// Generic background keep-alive task — prevents Render's free-tier from spinning down
+/// any named service.
 ///
-/// Render spins down free services after 15 minutes of inactivity. This task pings
-/// the worker's `/ping` endpoint every 10 minutes so the worker stays warm and the
-/// RabbitMQ consumers remain active.
-///
-/// Set `WORKER_URL` in your environment (e.g. `https://tbd-worker.onrender.com`).
-/// If the variable is absent the task exits immediately with a warning.
-pub async fn keep_alive_worker() {
+/// Behaviour:
+/// - Waits one full interval before the first ping to avoid racing with Render's own
+///   health-check probes during the initial deploy / startup sequence.
+/// - Uses a 90-second HTTP timeout to accommodate Render's cold-start delay
+///   (a sleeping free-tier service can take 30–60s to wake before it can respond).
+/// - On a 429 Too Many Requests (Render's edge throttle during spin-up), backs off
+///   exponentially (30s → 60s → 120s → 300s) before retrying, then resumes the
+///   normal interval after a successful response.
+async fn keep_alive(service: &'static str, ping_url: String, interval_secs: u64) {
     use std::time::Duration;
-    use tokio::time::interval;
+    use tokio::time::sleep;
 
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(90))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(service, error = %e, "keep_alive: failed to build HTTP client — exiting");
+            return;
+        }
+    };
+
+    tracing::info!(
+        service,
+        url = %ping_url,
+        interval_secs,
+        "keep_alive: started — first ping in {}s",
+        interval_secs
+    );
+
+    // Wait one full interval before the first ping so we don't race with Render's
+    // own health-check probes during the initial deploy / startup sequence.
+    sleep(Duration::from_secs(interval_secs)).await;
+
+    // Exponential backoff delays (seconds) applied on a 429 response.
+    const BACKOFF_STEPS: &[u64] = &[30, 60, 120, 300];
+
+    loop {
+        let mut backoff_idx = 0usize;
+
+        loop {
+            match client.get(&ping_url).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    tracing::info!(
+                        service,
+                        url = %ping_url,
+                        status = %resp.status(),
+                        "keep_alive: ping OK"
+                    );
+                    break; // success — exit backoff loop, sleep normal interval
+                }
+                Ok(resp) if resp.status().as_u16() == 429 => {
+                    // Render's edge is throttling the wake-up request.
+                    // Respect any Retry-After header, otherwise use our backoff table.
+                    let retry_after = resp
+                        .headers()
+                        .get("retry-after")
+                        .and_then(|v| v.to_str().ok())
+                        .and_then(|s| s.parse::<u64>().ok());
+
+                    let wait = retry_after
+                        .unwrap_or_else(|| BACKOFF_STEPS.get(backoff_idx).copied().unwrap_or(300));
+
+                    tracing::info!(
+                        service,
+                        url = %ping_url,
+                        wait_secs = wait,
+                        "keep_alive: 429 from Render edge (spinning up) — retrying in {}s",
+                        wait
+                    );
+
+                    sleep(Duration::from_secs(wait)).await;
+                    backoff_idx = (backoff_idx + 1).min(BACKOFF_STEPS.len() - 1);
+                }
+                Ok(resp) => {
+                    tracing::warn!(
+                        service,
+                        url = %ping_url,
+                        status = %resp.status(),
+                        "keep_alive: ping returned non-2xx"
+                    );
+                    break; // unexpected non-429 error — resume normal schedule
+                }
+                Err(e) => {
+                    tracing::error!(
+                        service,
+                        url = %ping_url,
+                        error = %e,
+                        "keep_alive: ping failed"
+                    );
+                    break; // network error — resume normal schedule
+                }
+            }
+        }
+
+        // Normal cadence — wait the full interval before the next keep-alive ping.
+        sleep(Duration::from_secs(interval_secs)).await;
+    }
+}
+
+/// Keep-alive task for `tbd-worker`.
+///
+/// Reads `WORKER_URL` from the environment (e.g. `https://tbd-worker.onrender.com`).
+/// Pings `<WORKER_URL>/healthz` every `KEEP_ALIVE_INTERVAL_SECS` (default 600s).
+/// If `WORKER_URL` is absent the task exits immediately with a warning.
+pub async fn keep_alive_worker() {
     let base_url = match std::env::var("WORKER_URL") {
         Ok(url) => url,
         Err(_) => {
@@ -96,42 +194,34 @@ pub async fn keep_alive_worker() {
     };
 
     let ping_url = format!("{}/healthz", base_url.trim_end_matches('/'));
-
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-    {
-        Ok(c) => c,
-        Err(e) => {
-            tracing::error!(error = %e, "keep_alive_worker: failed to build HTTP client — exiting");
-            return;
-        }
-    };
-
     let interval_secs: u64 = std::env::var("KEEP_ALIVE_INTERVAL_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(10 * 60);
 
-    tracing::info!(
-        url = %ping_url,
-        interval_secs = interval_secs,
-        "keep_alive_worker: started"
-    );
+    keep_alive("tbd-worker", ping_url, interval_secs).await;
+}
 
-    let mut ticker = interval(Duration::from_secs(interval_secs));
-    loop {
-        ticker.tick().await; // first tick fires immediately
-        match client.get(&ping_url).send().await {
-            Ok(resp) if resp.status().is_success() => {
-                tracing::info!(url = %ping_url, status = %resp.status(), "keep_alive_worker: ping OK");
-            }
-            Ok(resp) => {
-                tracing::warn!(url = %ping_url, status = %resp.status(), "keep_alive_worker: ping returned non-2xx");
-            }
-            Err(e) => {
-                tracing::error!(url = %ping_url, error = %e, "keep_alive_worker: ping failed");
-            }
+/// Keep-alive task for the Gotenberg PDF service.
+///
+/// Reads `GOTENBERG_URL` from the environment (e.g. `https://gotenberg.onrender.com`).
+/// Pings `<GOTENBERG_URL>/health` every `KEEP_ALIVE_INTERVAL_SECS` (default 600s).
+/// If `GOTENBERG_URL` is absent the task exits immediately with a warning.
+pub async fn keep_alive_gotenberg() {
+    let base_url = match std::env::var("GOTENBERG_URL") {
+        Ok(url) => url,
+        Err(_) => {
+            tracing::warn!("keep_alive_gotenberg: GOTENBERG_URL not set — keep-alive disabled");
+            return;
         }
-    }
+    };
+
+    // Gotenberg exposes a built-in /health endpoint that returns 200 when ready.
+    let ping_url = format!("{}/health", base_url.trim_end_matches('/'));
+    let interval_secs: u64 = std::env::var("KEEP_ALIVE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10 * 60);
+
+    keep_alive("gotenberg", ping_url, interval_secs).await;
 }
