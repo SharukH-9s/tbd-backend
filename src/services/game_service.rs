@@ -65,10 +65,22 @@ impl GameService {
                 }
 
                 let games = GameRepository::find_all_games_by_turf_id(state, turf_id).await?;
+
+                // Decision 9: never cache an empty collection.
+                // Games for a freshly created turf return [] — caching that would
+                // hide the first game created until the TTL expires.
+                if games.is_empty() {
+                    tracing::debug!(key = %cache_key, "Empty collection — skipping cache write");
+                    let json = serde_json::to_string(&games)
+                        .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                    return Ok::<Arc<str>, AppError>(json.into());
+                }
+
                 let json = serde_json::to_string(&games)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
                 state.l2_cache.set(&cache_key, &json, 300).await;
                 Ok(json.into())
+
             })
             .await
             .map_err(|e| {

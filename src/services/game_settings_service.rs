@@ -64,10 +64,22 @@ impl GameSettingsService {
                 }
 
                 let settings = GameSettingsRepository::find_all_by_game_id(state, game_id).await?;
+
+                // Decision 9: never cache an empty collection.
+                // Settings for a game with no templates return [] — caching that
+                // would hide the first settings entry created until the TTL expires.
+                if settings.is_empty() {
+                    tracing::debug!(key = %cache_key, "Empty collection — skipping cache write");
+                    let json = serde_json::to_string(&settings)
+                        .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
+                    return Ok::<Arc<str>, AppError>(json.into());
+                }
+
                 let json = serde_json::to_string(&settings)
                     .map_err(|_| AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed"))?;
                 state.l2_cache.set(&cache_key, &json, 300).await;
                 Ok(json.into())
+
             })
             .await
             .map_err(|e| {

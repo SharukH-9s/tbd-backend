@@ -38,3 +38,6 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 moka = { version = "0.12", features = ["future"] }
 regex = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
+sha2 = "0.10"           # ETag middleware: SHA-256 of response body (Decision 11)
+hex = "0.4"            # ETag middleware: encode hash to hex string (Decision 11)
+http-body-util = "0.1" # ETag middleware: buffer response body for hashing (Decision 11)

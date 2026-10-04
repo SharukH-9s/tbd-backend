@@ -278,7 +278,10 @@ async fn main() {
             http::header::ACCEPT,
             http::header::CACHE_CONTROL,
             http::header::PRAGMA,
+            http::header::IF_NONE_MATCH, // Decision 11: browser must be allowed to send If-None-Match cross-origin
         ])
+        // Decision 11: browser must be able to read ETag from cross-origin responses
+        .expose_headers([http::header::ETAG, http::header::CACHE_CONTROL])
         .allow_credentials(true);
 
     // Rate Limiting (Redis-backed, distributed)
@@ -525,6 +528,17 @@ async fn main() {
                 },
             ),
         )
+        // Decision 10 + 11: cache-control and ETag middleware.
+        // Layer order (Axum stacks LIFO on request, FIFO on response):
+        //   - cache_control_middleware (inner): sets Cache-Control header on the response.
+        //   - etag_middleware (outer): buffers body, computes ETag, copies Cache-Control onto 304.
+        // Result: every GET 200 gets both headers; matching ETags return 304 with no body.
+        .layer(middleware::from_fn(
+            api::middleware::etag::etag_middleware,
+        ))
+        .layer(middleware::from_fn(
+            api::middleware::cache_control::cache_control_middleware,
+        ))
         .with_state(shared_state);
 
     let port = env::var("PORT").unwrap_or_else(|_| "6751".to_string()); // PORT will be set by the deployer

@@ -138,6 +138,18 @@ impl TurfService {
                 }
                 tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
                 let turfs = TurfRepository::find_all(state).await?;
+
+                // Decision 9: never cache an empty collection.
+                // An empty Vec is returned to the caller but not stored in L1 or L2.
+                // This prevents a stale-empty-state if a write invalidation is ever missed.
+                if turfs.is_empty() {
+                    tracing::debug!(key = %cache_key, "Empty collection — skipping cache write");
+                    let json = serde_json::to_string(&turfs).map_err(|_| {
+                        AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed")
+                    })?;
+                    return Ok::<Arc<str>, AppError>(json.into());
+                }
+
                 let json = serde_json::to_string(&turfs).map_err(|_| {
                     AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed")
                 })?;
@@ -221,6 +233,16 @@ impl TurfService {
                 }
                 tracing::debug!(key = %cache_key, source = "db", "Cache miss, querying database");
                 let turfs = TurfRepository::find_by_manager_id(state, manager_id).await?;
+
+                // Decision 9: never cache an empty collection.
+                if turfs.is_empty() {
+                    tracing::debug!(key = %cache_key, "Empty collection — skipping cache write");
+                    let json = serde_json::to_string(&turfs).map_err(|_| {
+                        AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed")
+                    })?;
+                    return Ok::<Arc<str>, AppError>(json.into());
+                }
+
                 let json = serde_json::to_string(&turfs).map_err(|_| {
                     AppError::internal(error_codes::INTERNAL_ERROR, "Serialization failed")
                 })?;
