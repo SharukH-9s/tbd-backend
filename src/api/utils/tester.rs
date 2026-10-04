@@ -137,26 +137,3 @@ pub async fn keep_alive_worker() {
     keep_alive("tbd-worker", ping_url, interval_secs).await;
 }
 
-/// Keep-alive task for the Gotenberg PDF service.
-///
-/// Reads `GOTENBERG_URL` from the environment (e.g. `https://gotenberg.onrender.com`).
-/// Pings `<GOTENBERG_URL>/health` every `KEEP_ALIVE_INTERVAL_SECS` (default 600s).
-/// If `GOTENBERG_URL` is absent the task exits immediately with a warning.
-pub async fn keep_alive_gotenberg() {
-    let base_url = match std::env::var("GOTENBERG_URL") {
-        Ok(url) => url,
-        Err(_) => {
-            tracing::warn!("keep_alive_gotenberg: GOTENBERG_URL not set — keep-alive disabled");
-            return;
-        }
-    };
-
-    // Gotenberg exposes a built-in /health endpoint that returns 200 when ready.
-    let ping_url = format!("{}/health", base_url.trim_end_matches('/'));
-    let interval_secs: u64 = std::env::var("KEEP_ALIVE_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(10 * 60);
-
-    keep_alive("gotenberg", ping_url, interval_secs).await;
-}

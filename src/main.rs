@@ -245,11 +245,10 @@ async fn main() {
         amqp_url,
     ));
 
-    // Background keep-alive tasks: ping tbd-worker and Gotenberg every 10 minutes to
-    // prevent Render's free-tier from spinning them down.
-    // Requires WORKER_URL and GOTENBERG_URL in env.
+    // Background keep-alive task: ping tbd-worker every 10 minutes to
+    // prevent Render's free-tier from spinning it down.
+    // Requires WORKER_URL in env.
     tokio::spawn(api::utils::tester::keep_alive_worker());
-    tokio::spawn(api::utils::tester::keep_alive_gotenberg());
 
     let cors_origins_raw = env::var("CORS_ORIGIN").unwrap_or_else(|_| {
         "http://localhost:5173,https://unique-kelpie-7632c3.netlify.app".to_string()
