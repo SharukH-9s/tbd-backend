@@ -212,6 +212,12 @@ async fn main() {
         "Cache initialization complete"
     );
 
+    // Read optional Cloudflare PSK. Absent in local dev (check disabled); required in production.
+    let cloudflare_psk = env::var("CLOUDFLARE_PSK").ok();
+    if cloudflare_psk.is_none() {
+        tracing::warn!("CLOUDFLARE_PSK is not set — direct-to-Render PSK enforcement is DISABLED (OK for local dev, NOT for production)");
+    }
+
     let shared_state: SharedState = Arc::new(AppState {
         db,
         jwt_secret: Arc::new(secret.into_bytes()),
@@ -219,6 +225,7 @@ async fn main() {
         l2_cache,
         cache,
         redis_enabled,
+        cloudflare_psk,
     });
 
     // Ensure the root Administrator exists on startup
@@ -533,11 +540,16 @@ async fn main() {
         //   - cache_control_middleware (inner): sets Cache-Control header on the response.
         //   - etag_middleware (outer): buffers body, computes ETag, copies Cache-Control onto 304.
         // Result: every GET 200 gets both headers; matching ETags return 304 with no body.
-        .layer(middleware::from_fn(
-            api::middleware::etag::etag_middleware,
-        ))
+        .layer(middleware::from_fn(api::middleware::etag::etag_middleware))
         .layer(middleware::from_fn(
             api::middleware::cache_control::cache_control_middleware,
+        ))
+        // PSK guard — outermost layer so it's the very first check on every request.
+        // Blocks any direct hit to *.onrender.com that lacks the Cloudflare-injected header.
+        // Health/ping/metrics are exempt (see psk.rs). Bypassed entirely when CLOUDFLARE_PSK is unset.
+        .layer(middleware::from_fn_with_state(
+            shared_state.clone(),
+            api::middleware::psk::require_cloudflare,
         ))
         .with_state(shared_state);
 

@@ -51,38 +51,55 @@ redis.call('EXPIRE', key, math.ceil(window_secs))
 return tokens
 "#;
 
-/// Extracts the true client IP, respecting Render's load balancer headers.
-/// Falls back to the raw socket address if no proxy header is present.
+/// Extracts the true client IP from the incoming request.
+///
+/// Priority order (highest to lowest trust):
+///   1. `CF-Connecting-IP`  — Cloudflare's guaranteed real-visitor IP header.
+///      Cloudflare strips any client-supplied version of this header and
+///      re-injects its own, so it cannot be spoofed once traffic routes via CF.
+///   2. `X-Forwarded-For`   — Standard reverse-proxy chain; we take the leftmost IP.
+///   3. `X-Real-IP`         — Simpler single-IP header set by some proxies.
+///   4. Raw `SocketAddr`    — Direct TCP connection (local dev / no proxy).
 fn extract_ip(req: &Request, socket_addr: &SocketAddr) -> String {
-    // X-Forwarded-For Header Check (Primary Proxy Method)
-    // Reverse proxies and load balancers (such as Render, Cloudflare, Nginx, or AWS ALB) append client IPs to this header.
-    // So we check, if the HTTP request contains the X-Forwarded-For header.
-    // If present and valid UTF-8, we split the value by commas (val.split(',')).
-    // Since the value can be a chain of IPs representing each hop (e.g., client_ip, proxy_1_ip, proxy_2_ip), the leftmost (first) IP is always the original client.
-    // So we extract the first IP, trim any whitespace, and return it
-    if let Some(forwarded_for) = req.headers().get("X-Forwarded-For") {
-        // forwared_for is the header value
-        if let Ok(val) = forwarded_for.to_str() {
-            if let Some(first_ip) = val.split(',').next() {
-                return first_ip.trim().to_string();
+    // 1. Cloudflare injects CF-Connecting-IP with the real visitor IP.
+    //    This header is stripped and re-set by Cloudflare, so it is safe to trust.
+    if let Some(cf_ip) = req.headers().get("CF-Connecting-IP") {
+        if let Ok(val) = cf_ip.to_str() {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
             }
         }
     }
 
-    // X-Real-IP Header Check (Secondary Proxy Method)
-    // Some simpler reverse proxies or configurations only set X-Real-IP instead of a full chain in X-Forwarded-For
-    // If X-Forwarded-For is not present, it checks for the X-Real-IP header.
-    // If present and valid UTF-8, it trims any leading/trailing whitespace and returns it.
-    if let Some(real_ip) = req.headers().get("X-Real-IP") {
-        if let Ok(val) = real_ip.to_str() {
-            return val.trim().to_string();
+    // 2. X-Forwarded-For: set by Render, Cloudflare, Nginx, AWS ALB, etc.
+    //    The value may be a comma-separated chain (client, proxy1, proxy2…);
+    //    the leftmost (first) entry is always the original client IP.
+    if let Some(forwarded_for) = req.headers().get("X-Forwarded-For") {
+        if let Ok(val) = forwarded_for.to_str() {
+            if let Some(first_ip) = val.split(',').next() {
+                let trimmed = first_ip.trim();
+                if !trimmed.is_empty() {
+                    return trimmed.to_string();
+                }
+            }
         }
     }
 
-    // Fallback: use the raw TCP connection's remote address.
-    // For local development or cases where traffic is hitting the server directly without a reverse proxy, no headers will be set.
-    // It falls back to the physical SocketAddr (socket_addr) of the incoming TCP connection.
-    // It extracts just the IP portion, discarding the port number to avoid treating the same IP on different source ports as distinct clients.
+    // 3. X-Real-IP: set by simpler reverse-proxy configs that only forward a
+    //    single IP rather than a full forwarding chain.
+    if let Some(real_ip) = req.headers().get("X-Real-IP") {
+        if let Ok(val) = real_ip.to_str() {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+
+    // 4. Fallback: raw TCP socket address (local development / direct connection).
+    //    Port is discarded so the same client on different ephemeral ports is treated
+    //    as one identity.
     socket_addr.ip().to_string()
 }
 
